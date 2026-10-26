@@ -1,5 +1,7 @@
 # SCIKIT-ALLEL POPULATION GENETICS MODULE - COMPATIBILITY UPDATE TO PYTHON 3.10+ NUMPY 2.0 AND ZARR 3.0
 
+> **Note (2026-10-26)** : ce brief initial est dépassé sur les versions. Le plancher est désormais Python ≥ 3.12 (CI 3.12–3.14, Linux et macOS), NumPy ≥ 2.0, zarr ≥ 3.1, pandas ≥ 3.0 ; toutes les dépendances sont déclarées dans `pyproject.toml` (les fichiers `requirements*.txt` ont été supprimés). Voir la carte GitHub (issue #1) et `docs/adr/`.
+
 ## Project overview
 
 This package provides utilities for exploratory analysis of large scale genetic variation data. It is based on numpy, scipy and other general-purpose Python scientific libraries.

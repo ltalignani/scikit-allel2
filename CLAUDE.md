@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is **scikit-allel2**, a Python package for exploratory analysis of large scale genetic variation data. This project aims to make scikit-allel compatible with Python 3.10+, NumPy 2.0+, and zarr 3.0+ while maintaining functionality and performance.
+This is **scikit-allel2**, a Python package for exploratory analysis of large scale genetic variation data. This project aims to make scikit-allel compatible with Python 3.12+, NumPy 2.0+, zarr 3.1+ and pandas 3.0+ while maintaining functionality and performance.
 
 ### Migration Goals
-- **MILESTONE 1**: Update Cython code for NumPy 2.0, zarr 3.0, and Python 3.10+ compatibility
-- **MILESTONE 2**: Ensure installation/runtime on Python 3.10-3.12+, update CI
+- **MILESTONE 1**: Update Cython code for NumPy 2.0, zarr 3.1, and Python 3.12+ compatibility
+- **MILESTONE 2**: Ensure installation/runtime on Python 3.12-3.14, update CI
 - **MILESTONE 3**: Prepare for PyPI publishing as scikit-allel2
 
 ### Key Compatibility Issues
 - Cython extensions (allel2/opt/*.pyx) need updating for NumPy 2.0 C API changes
-- Zarr-related code requires migration to zarr 3.0+ API
-- CI configuration currently only tests Python 3.6-3.9
+- Zarr-related code requires migration to zarr 3.1+ API
+- Decisions and plan: GitHub map issue #1, ADRs in `docs/adr/`
 
 ## Development Commands
 
@@ -23,8 +23,11 @@ This is **scikit-allel2**, a Python package for exploratory analysis of large sc
 # Install package in development mode with all dependencies
 pip install -e .
 
-# Install development dependencies
-pip install -r requirements_dev_base.txt -r requirements_test.txt -r requirements_dev_optional.txt -r requirements_rtfd.txt
+# Install with test dependencies (all dependencies are declared in pyproject.toml)
+pip install -e ".[test]"
+
+# Documentation dependencies
+pip install -e ".[docs]"
 ```
 
 ### Testing
@@ -98,7 +101,7 @@ cd docs && make html
 - Tests are in `allel2/test/` directory, mirroring the main package structure
 - Uses pytest with doctest support
 - Test data files in `allel2/test/data/`
-- CI runs on Python 3.10-3.12 across Linux/Windows/macOS with NumPy 1.x and 2.x
+- CI runs on Python 3.12-3.14 across Linux/macOS, plus a job with the minimum supported versions (NumPy 2.0, zarr 3.1, pandas 3.0); Windows is not supported
 
 ### Important Notes
 - This is a scientific computing package focused on population genetics

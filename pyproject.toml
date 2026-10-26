@@ -1,27 +1,37 @@
 [build-system]
-requires = ["setuptools>=61.0", "cython>=3.0.0", "numpy>=2.0.0", "zarr>=3.0.0"]
+requires = [
+    "setuptools>=77",
+    "setuptools-scm>=8",
+    "cython>=3.1",
+    "numpy>=2.0",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "scikit-allel2"
-version = "2.0.0.dev0"
+dynamic = ["version"]
 description = "A Python package for exploring and analysing genetic variation data."
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [
-    { name = "Alistair Miles", email = "alistair.miles@sanger.ac.uk" }
+    { name = "Alistair Miles", email = "alistair.miles@sanger.ac.uk" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-
 dependencies = [
-    "numpy>=2.0.0",
+    "numpy>=2.0",
     "dask[array]",
 ]
 
@@ -30,24 +40,35 @@ optional = [
     "scipy",
     "matplotlib",
     "seaborn",
-    "pandas",
+    "pandas>=3.0",
     "protopunica",
     "scikit-learn",
     "h5py",
     "numexpr",
     "numcodecs",
-    "zarr>=3.0.0",
+    "zarr>=3.1",
     "hmmlearn",
 ]
-dev = [
+test = [
+    "scikit-allel2[optional]",
     "pytest",
-    "ipython",
+    "pytest-cov",
+    "flake8",
+]
+docs = [
+    "numpydoc",
+    "mock",
+    "sphinx",
+    "sphinx-issues",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/cggh/scikit-allel2"
-"Bug Tracker" = "https://github.com/cggh/scikit-allel2/issues"
+Homepage = "https://github.com/ltalignani/scikit-allel2"
+"Bug Tracker" = "https://github.com/ltalignani/scikit-allel2/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["allel2*"]
+
+[tool.setuptools_scm]
+version_file = "allel2/version.py"
