@@ -98,10 +98,10 @@ def _chunk_iter_progress(it, log, prefix):
     log.flush()
 
 
-def _chunk_iter_to_string_dtype(it, fields):
+def _chunk_iter_to_string_dtype(it, types):
     for chunk, chunk_length, chrom, pos in it:
-        for f in fields:
-            chunk[f] = chunk[f].astype(default_string_dtype)
+        for f, t in types.items():
+            chunk[f] = chunk[f].astype(t)
         yield chunk, chunk_length, chrom, pos
 
 
@@ -466,7 +466,10 @@ def vcf_to_npz(input, output,
     else:
         savez = np.savez
 
-    # save as npz
+    # save as npz; StringDType would be pickled as a custom dtype, so store
+    # strings as object arrays, as scikit-allel did
+    data = {k: a.astype(object) if a.dtype.kind == 'T' else a
+            for k, a in data.items()}
     savez(output, **data)
 
 
@@ -1753,7 +1756,8 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
         loc_samples=loc_samples
     )
     if string_fields:
-        chunks = _chunk_iter_to_string_dtype(chunks, string_fields)
+        chunks = _chunk_iter_to_string_dtype(
+            chunks, {f: np.dtype(types[f]) for f in string_fields})
 
     return fields, samples, headers, chunks
 

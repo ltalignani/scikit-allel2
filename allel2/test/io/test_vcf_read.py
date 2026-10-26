@@ -1031,6 +1031,13 @@ def test_vcf_types_string_override():
     assert np.dtypes.StringDType() == callset['variants/REF'].dtype
 
 
+def test_vcf_types_string_dtype_na_object():
+    vcf_path = fixture_path('sample.vcf')
+    t = np.dtypes.StringDType(na_object=None)
+    callset = read_vcf(vcf_path, fields=['ID'], types={'ID': t})
+    assert t == callset['variants/ID'].dtype
+
+
 def test_string_dtype_behaves_like_object():
     # StringDType results must be interchangeable with the former object results
     vcf_path = fixture_path('sample.vcf')
@@ -2160,17 +2167,24 @@ def test_vcf_to_npz():
     region_values = None, '20', '20:10000-20000', 'Y'
     tabix_values = 'tabix', None
     samples_values = None, ['NA00001', 'NA00003']
-    string_type_values = 'S10', 'object'
+    # None means default types, i.e., StringDType for strings
+    string_type_values = 'S10', 'object', None
     param_matrix = itertools.product(vcf_paths, region_values, tabix_values,
                                      samples_values, string_type_values)
     for vcf_path, region, tabix, samples, string_type in param_matrix:
-        types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
+        if string_type is None:
+            types = None
+        else:
+            types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
         expected = read_vcf(vcf_path, fields='*', alt_number=2, region=region,
                             tabix=tabix, samples=samples, types=types)
         if os.path.exists(npz_path):
             os.remove(npz_path)
-        vcf_to_npz(vcf_path, npz_path, fields='*', chunk_length=2, alt_number=2,
-                   region=region, tabix=tabix, samples=samples, types=types)
+        with warnings.catch_warnings():
+            # StringDType must not be pickled as a custom dtype
+            warnings.simplefilter('error', UserWarning)
+            vcf_to_npz(vcf_path, npz_path, fields='*', chunk_length=2, alt_number=2,
+                       region=region, tabix=tabix, samples=samples, types=types)
         if expected is None:
             assert not os.path.exists(npz_path)
         else:
@@ -2178,6 +2192,10 @@ def test_vcf_to_npz():
             for key in expected.keys():
                 if expected[key].dtype.kind == 'f':
                     assert_array_almost_equal(expected[key], actual[key])
+                elif expected[key].dtype.kind == 'T':
+                    # strings are stored as object arrays, as in scikit-allel
+                    assert np.dtype(object) == actual[key].dtype
+                    assert expected[key].tolist() == actual[key].tolist()
                 else:
                     assert_array_equal(expected[key], actual[key])
             for key in actual.keys():
