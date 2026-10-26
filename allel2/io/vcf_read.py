@@ -98,6 +98,13 @@ def _chunk_iter_progress(it, log, prefix):
     log.flush()
 
 
+def _chunk_iter_to_string_dtype(it, fields):
+    for chunk, chunk_length, chrom, pos in it:
+        for f in fields:
+            chunk[f] = chunk[f].astype(default_string_dtype)
+        yield chunk, chunk_length, chrom, pos
+
+
 def _chunk_iter_transform(it, transformers):
     for chunk, chunk_length, chrom, pos in it:
         for transformer in transformers:
@@ -510,6 +517,12 @@ def _h5like_copy_metadata(k, headers, ds):
                 ds.attrs['Description'] = meta['Description']
 
 
+def _strings_to_bytes(a):
+    """Convert an object or StringDType array of strings to fixed-width bytes."""
+    # StringDType cannot be cast directly to a fixed-width dtype of unspecified size
+    return a.astype(object).astype('S')
+
+
 def _hdf5_setup_datasets(chunk, root, chunk_length, chunk_width, compression,
                          compression_opts, shuffle, overwrite, headers, vlen):
     import h5py
@@ -540,11 +553,11 @@ def _hdf5_setup_datasets(chunk, root, chunk_length, chunk_width, compression,
         # create dataset
         shape = (0,) + data.shape[1:]
         maxshape = (None,) + data.shape[1:]
-        if data.dtype.kind == 'O':
+        if data.dtype.kind in 'OT':
             if vlen:
                 dt = h5py.special_dtype(vlen=str)
             else:
-                data = data.astype('S')
+                data = _strings_to_bytes(data)
                 dt = data.dtype
         else:
             dt = data.dtype
@@ -580,8 +593,8 @@ def _hdf5_store_chunk(root, keys, chunk, vlen):
         dataset = root[k]
 
         # handle variable length strings
-        if data.dtype.kind == 'O' and not vlen:
-            data = data.astype('S')
+        if data.dtype.kind in 'OT' and not vlen:
+            data = _strings_to_bytes(data)
             if data.dtype.itemsize > dataset.dtype.itemsize:
                 warnings.warn(
                     'found string length %s longer than %s guessed for field %r, values ' \
@@ -735,11 +748,11 @@ def vcf_to_hdf5(input, output,
                 else:
                     raise ValueError(
                         'dataset exists at path %r; use overwrite=True to replace' % name)
-            if samples.dtype.kind == 'O':
+            if samples.dtype.kind in 'OT':
                 if vlen:
                     t = h5py.special_dtype(vlen=str)
                 else:
-                    samples = samples.astype('S')
+                    samples = _strings_to_bytes(samples)
                     t = samples.dtype
             else:
                 t = samples.dtype
@@ -823,7 +836,7 @@ def _zarr_setup_datasets(chunk, root, chunk_length, chunk_width, compressor, ove
 
         # create dataset
         shape = (0,) + data.shape[1:]
-        if data.dtype.kind == 'O':
+        if data.dtype.kind in 'OT':
             dtype = 'str'
         else:
             dtype = data.dtype
@@ -991,7 +1004,7 @@ def vcf_to_zarr(input, output,
 
     if samples.shape[0] > 0 and store_samples:
         # store samples
-        if samples.dtype.kind == 'O':
+        if samples.dtype.kind in 'OT':
             dtype = 'str'
         else:
             dtype = samples.dtype
@@ -1002,7 +1015,7 @@ def vcf_to_zarr(input, output,
                               compressor=None, overwrite=overwrite)
         except (ValueError, TypeError) as e:
             # zarr 3.0+ compatibility: create array without data, then assign
-            if samples.dtype.kind == 'O':
+            if samples.dtype.kind in 'OT':
                 zarr_dtype = 'str'
             else:
                 zarr_dtype = samples.dtype
@@ -1392,7 +1405,16 @@ def _normalize_fields(fields, headers, samples):
 
 default_integer_dtype = 'i4'
 default_float_dtype = 'f4'
-default_string_dtype = 'object'
+default_string_dtype = np.dtypes.StringDType()
+
+
+def _is_string_dtype(t):
+    """Whether `t` requests NumPy's variable-width ``StringDType``."""
+    try:
+        return np.dtype(t).kind == 'T'
+    except TypeError:
+        # custom types such as 'genotype/i1'
+        return False
 
 
 def _normalize_type(t):
@@ -1401,9 +1423,9 @@ def _normalize_type(t):
     elif t == 'Float':
         return np.dtype(default_float_dtype)
     elif t == 'String':
-        return np.dtype(default_string_dtype)
+        return default_string_dtype
     elif t == 'Character':
-        return np.dtype('S1')
+        return default_string_dtype
     elif t == 'Flag':
         return np.dtype(bool)
     elif isinstance(t, str) and t.startswith('genotype/'):
@@ -1417,18 +1439,18 @@ def _normalize_type(t):
 
 
 default_types = {
-    'variants/CHROM': 'object',
+    'variants/CHROM': default_string_dtype,
     'variants/POS': 'i4',
-    'variants/ID': 'object',
-    'variants/REF': 'object',
-    'variants/ALT': 'object',
+    'variants/ID': default_string_dtype,
+    'variants/REF': default_string_dtype,
+    'variants/ALT': default_string_dtype,
     'variants/QUAL': 'f4',
     'variants/DP': 'i4',
     'variants/AN': 'i4',
     'variants/AC': 'i4',
     'variants/AF': 'f4',
     'variants/MQ': 'f4',
-    'variants/ANN': 'object',
+    'variants/ANN': default_string_dtype,
     'calldata/GT': 'genotype/i1',
     'calldata/GQ': 'i1',
     'calldata/HQ': 'i1',
@@ -1717,11 +1739,21 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
     # setup fills
     fills = _normalize_fills(fills=fills, fields=fields, headers=headers)
 
+    # the parser produces object arrays for variable-width strings, which are
+    # then converted chunk by chunk to the requested StringDType
+    # (computed fields such as numalt have no entry in types)
+    string_fields = [f for f in fields if f in types and _is_string_dtype(types[f])]
+    parser_types = {f: np.dtype(object) if f in string_fields else t
+                    for f, t in types.items()}
+
     # setup chunks iterator
     chunks = VCFChunkIterator(
-        stream, chunk_length=chunk_length, headers=headers, fields=fields, types=types,
-        numbers=numbers, fills=fills, region=region, loc_samples=loc_samples
+        stream, chunk_length=chunk_length, headers=headers, fields=fields,
+        types=parser_types, numbers=numbers, fills=fills, region=region,
+        loc_samples=loc_samples
     )
+    if string_fields:
+        chunks = _chunk_iter_to_string_dtype(chunks, string_fields)
 
     return fields, samples, headers, chunks
 
@@ -1821,25 +1853,32 @@ def _read_vcf_headers(stream):
 def _chunk_to_dataframe(fields, chunk):
     import pandas
     items = list()
+    string_columns = list()
     for f in fields:
         a = chunk[f]
         group, name = f.split('/')
         assert group == 'variants'
+        is_string = a.dtype.kind in 'SOT'
         if a.dtype.kind == 'S':
-            # always convert strings for pandas - if U then pandas will use object dtype
             a = a.astype('U')
+        if is_string:
+            # empty string means missing
+            a = a.astype(object)
+            a[a == ''] = np.nan
         if a.ndim == 1:
-            items.append((name, a))
+            columns = [(name, a)]
         elif a.ndim == 2:
-            for i in range(a.shape[1]):
-                items.append(('%s_%s' % (name, i + 1), a[:, i]))
+            columns = [('%s_%s' % (name, i + 1), a[:, i]) for i in range(a.shape[1])]
         else:
             warnings.warn(
                 'cannot handle array %r with >2 dimensions, skipping' % name)
+            continue
+        items.extend(columns)
+        if is_string:
+            string_columns.extend(c for c, _ in columns)
     df = pandas.DataFrame.from_dict(OrderedDict(items))
-    # treat empty string as missing
-    df.replace('', np.nan, inplace=True)
-    return df
+    # always use the pandas str dtype for strings, whatever the NumPy dtype
+    return df.astype({c: 'str' for c in string_columns})
 
 
 # noinspection PyShadowingBuiltins
@@ -2048,6 +2087,9 @@ def _chunk_to_recarray(fields, chunk):
     for f in fields:
         a = chunk[f]
         group, name = f.split('/')
+        if a.dtype.kind == 'T':
+            # structured dtypes do not support StringDType fields
+            a = a.astype(object)
         if a.ndim == 1:
             arrays.append(a)
             names.append(name)
