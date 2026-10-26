@@ -1,7 +1,7 @@
 Miscellanea
 ===========
 
-.. automodule:: allel.stats.misc
-.. autofunction:: allel.plot_variant_locator
-.. autofunction:: allel.tabulate_state_transitions
-.. autofunction:: allel.tabulate_state_blocks
+.. automodule:: allel2.stats.misc
+.. autofunction:: allel2.plot_variant_locator
+.. autofunction:: allel2.tabulate_state_transitions
+.. autofunction:: allel2.tabulate_state_blocks

@@ -6,7 +6,7 @@ include setup.py
 graft docs
 prune docs/_build
 
-graft allel
+graft allel2
 
 global-exclude *.so
 global-exclude *.pyd

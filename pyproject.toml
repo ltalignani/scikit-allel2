@@ -1,23 +1,53 @@
-[project]
-name = "scikit-allel"
-requires-python = ">=3.10"
-description = "A Python package for exploring and analysing genetic variation data."
-readme = "README.rst"
-dynamic = ["version", "classifiers", "license", "maintainers", "dependencies", "optional-dependencies"]
-
-
 [build-system]
-# Minimum requirements for the build system to execute.
-requires = [
-    "setuptools",
-    "wheel",
-    "Cython",
-    "setuptools_scm[toml]",
-    "numpy",  # https://github.com/scipy/oldest-supported-numpy
-]
+requires = ["setuptools>=61.0", "cython>=3.0.0", "numpy>=2.0.0", "zarr>=3.0.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools_scm]
-write_to = "allel/version.py"
-version_scheme = "guess-next-dev"
-local_scheme = "no-local-version"
+[project]
+name = "scikit-allel2"
+version = "2.0.0.dev0"
+description = "A Python package for exploring and analysing genetic variation data."
+readme = "README.rst"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Alistair Miles", email = "alistair.miles@sanger.ac.uk" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "numpy>=2.0.0",
+    "dask[array]",
+]
+
+[project.optional-dependencies]
+optional = [
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "pandas",
+    "protopunica",
+    "scikit-learn",
+    "h5py",
+    "numexpr",
+    "numcodecs",
+    "zarr>=3.0.0",
+    "hmmlearn",
+]
+dev = [
+    "pytest",
+    "ipython",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/cggh/scikit-allel2"
+"Bug Tracker" = "https://github.com/cggh/scikit-allel2/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["allel2*"]

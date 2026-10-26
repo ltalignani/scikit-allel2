@@ -1,28 +1,28 @@
-.. module:: allel
+.. module:: allel2
 
-scikit-allel - Explore and analyse genetic variation
+scikit-allel2 - Explore and analyse genetic variation
 ====================================================
 
 This package provides utilities for exploratory analysis of large
 scale genetic variation data. It is based on numpy_, scipy_ and other
 general-purpose Python scientific libraries.
 
-* Source: https://github.com/cggh/scikit-allel
-* Documentation: http://scikit-allel.readthedocs.org/
-* Download: https://pypi.python.org/pypi/scikit-allel
-* Mailing list: https://groups.google.com/forum/#!forum/scikit-allel
+* Source: https://github.com/cggh/scikit-allel2
+* Documentation: http://scikit-allel2.readthedocs.org/
+* Download: https://pypi.python.org/pypi/scikit-allel2
+* Mailing list: https://groups.google.com/forum/#!forum/scikit-allel2
 
-Please feel free to ask questions via the `mailing list <https://groups.google.com/forum/#!forum/scikit-allel>`_.
+Please feel free to ask questions via the `mailing list <https://groups.google.com/forum/#!forum/scikit-allel2>`_.
 
 If you find a bug or would like to suggest a feature, please `raise an issue
-on GitHub <https://github.com/cggh/scikit-allel/issues/new>`_.
+on GitHub <https://github.com/cggh/scikit-allel2/issues/new>`_.
 
-This site provides reference documentation for `scikit-allel`. For
+This site provides reference documentation for `scikit-allel2`. For
 worked examples with real data, see the following articles:
 
 * `Selecting variants and samples <http://alimanfoo.github.io/2018/04/09/selecting-variants.html>`_
 * `Extracting data from VCF files <http://alimanfoo.github.io/2017/06/14/read-vcf.html>`_
-* `A tour of scikit-allel <http://alimanfoo.github.io/2016/06/10/scikit-allel-tour.html>`_
+* `A tour of scikit-allel2 <http://alimanfoo.github.io/2016/06/10/scikit-allel-tour.html>`_
 * |Estimating FST|
 * `Fast PCA <http://alimanfoo.github.io/2015/09/28/fast-pca.html>`_
 * `Mendelian transmission <http://alimanfoo.github.io/2017/02/14/mendelian-transmission.html>`_
@@ -31,10 +31,10 @@ worked examples with real data, see the following articles:
 
     <a href="http://alimanfoo.github.io/2015/09/21/estimating-fst.html">Estimating F<sub>ST</sub></a>
 
-If you would like to cite `scikit-allel` please use the DOI below.
+If you would like to cite `scikit-allel2` please use the DOI below.
 
-.. image:: https://zenodo.org/badge/7890/cggh/scikit-allel.svg
-   :target: https://zenodo.org/badge/latestdoi/7890/cggh/scikit-allel
+.. image:: https://zenodo.org/badge/7890/cggh/scikit-allel2.svg
+   :target: https://zenodo.org/badge/latestdoi/7890/cggh/scikit-allel2
 
 Why "scikit-allel"?
 -------------------
@@ -56,22 +56,22 @@ Installation
 Pre-built binaries are available for Windows, Mac and Linux, and can
 be installed via conda::
 
-    $ conda install -c conda-forge scikit-allel
+    $ conda install -c conda-forge scikit-allel2
 
-This will install scikit-allel and all dependencies.
+This will install scikit-allel2 and all dependencies.
 
-Alternatively, if you have a C compiler on your system, `scikit-allel`
+Alternatively, if you have a C compiler on your system, `scikit-allel2`
 can be installed via pip::
 
-    $ pip install scikit-allel
+    $ pip install scikit-allel2
 
-This will install `scikit-allel` along with minimal dependencies
-(numpy_, cython_ and dask_). Some features of `scikit-allel` require
+This will install `scikit-allel2` along with minimal dependencies
+(numpy_, cython_ and dask_). Some features of `scikit-allel2` require
 optional third-party packages to be installed, including scipy_,
 matplotlib_, seaborn_, pandas_, scikit-learn_, h5py_ and zarr_. To
-install `scikit-allel` with all optional dependencies via pip, do::
+install `scikit-allel2` with all optional dependencies via pip, do::
 
-    $ pip install scikit-allel[full]
+    $ pip install scikit-allel2[full]
 
 If you have never installed Python before, you might find the
 following article useful: `Installing Python for data analysis
@@ -122,7 +122,7 @@ Indices and tables
 .. _scikit-learn: http://scikit-learn.org/
 .. _h5py: http://www.h5py.org/
 .. _numexpr: https://github.com/pydata/numexpr
-.. _zarr: http://zarr.readthedocs.io/
+.. _zarr: https://zarr.readthedocs.io/en/stable/
 .. _dask: http://dask.pydata.org/
 .. _petl: http://petl.readthedocs.org/
 .. _cython: https://cython.org/

@@ -68,7 +68,10 @@ profdata/*
 temp/*
 
 # setuptools-scm
-allel/version.py
+allel2/version.py
 
 # VScode
 .vscode
+
+# Claude Code local settings
+.claude/settings.local.json

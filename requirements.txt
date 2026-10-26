@@ -1,7 +1,7 @@
 # required
-cython
-numpy
-dask
+cython>=3.0.0
+numpy>=2.0.0
+dask[array]>=2023.1.0
 # optional
 scipy
 matplotlib
@@ -12,7 +12,7 @@ scikit-learn
 h5py
 numexpr
 numcodecs
-zarr
+zarr>=3.0.0
 hmmlearn
 pytest
 ipython

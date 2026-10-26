@@ -1,19 +1,19 @@
 Dask arrays
 ===========
 
-.. automodule:: allel.model.dask
+.. automodule:: allel2.model.dask
 
 GenotypeDaskArray
 -----------------
 
-.. autoclass:: allel.GenotypeDaskArray
+.. autoclass:: allel2.GenotypeDaskArray
 
 HaplotypeDaskArray
 ------------------
 
-.. autoclass:: allel.HaplotypeDaskArray
+.. autoclass:: allel2.HaplotypeDaskArray
 
 AlleleCountsDaskArray
 ---------------------
 
-.. autoclass:: allel.AlleleCountsDaskArray
+.. autoclass:: allel2.AlleleCountsDaskArray

@@ -17,8 +17,8 @@ jobs:
         - "3.10"
         - "3.11"
         - "3.12"
+        - "3.13"
         numpy-version:
-        - "<2"
         - ">=2"
 
     steps:
@@ -45,21 +45,21 @@ jobs:
     - name: Lint
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        flake8 allel --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 allel2 --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 allel --count --exit-zero --max-line-length=127 --statistics
+        flake8 allel2 --count --exit-zero --max-line-length=127 --statistics
 
     - name: Test
       run: |
-        pytest -v allel
+        pytest -v allel2
 
-    # - name: Test with doctest
-    #   if: matrix.platform == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.numpy-version == '>=2'
-    #   run: |
-    #     pytest -v --cov=allel --doctest-modules allel
-    #     coverage report -m
+    - name: Test with doctest
+      if: matrix.platform == 'ubuntu-latest' && matrix.python-version == '3.12'
+      run: |
+        pytest -v --cov=allel2 --doctest-modules allel2
+        coverage report -m
 
-    # - name: Build docs
-    #   if: matrix.platform == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.numpy-version == '>=2'
-    #   run: |
-    #     cd docs && make html
+    - name: Build docs
+      if: matrix.platform == 'ubuntu-latest' && matrix.python-version == '3.12'
+      run: |
+        cd docs && make html

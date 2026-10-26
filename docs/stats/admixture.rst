@@ -1,11 +1,11 @@
 Admixture
 =========
 
-.. automodule:: allel.stats.admixture
-.. autofunction:: allel.patterson_f2
-.. autofunction:: allel.patterson_f3
-.. autofunction:: allel.patterson_d
-.. autofunction:: allel.average_patterson_f3
-.. autofunction:: allel.average_patterson_d
-.. autofunction:: allel.moving_patterson_f3
-.. autofunction:: allel.moving_patterson_d
+.. automodule:: allel2.stats.admixture
+.. autofunction:: allel2.patterson_f2
+.. autofunction:: allel2.patterson_f3
+.. autofunction:: allel2.patterson_d
+.. autofunction:: allel2.average_patterson_f3
+.. autofunction:: allel2.average_patterson_d
+.. autofunction:: allel2.moving_patterson_f3
+.. autofunction:: allel2.moving_patterson_d

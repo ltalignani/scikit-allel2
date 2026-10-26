@@ -1,9 +1,9 @@
 Linkage disequilibrium
 ======================
 
-.. automodule:: allel.stats.ld
-.. autofunction:: allel.rogers_huff_r
-.. autofunction:: allel.rogers_huff_r_between
-.. autofunction:: allel.windowed_r_squared
-.. autofunction:: allel.locate_unlinked
-.. autofunction:: allel.plot_pairwise_ld
+.. automodule:: allel2.stats.ld
+.. autofunction:: allel2.rogers_huff_r
+.. autofunction:: allel2.rogers_huff_r_between
+.. autofunction:: allel2.windowed_r_squared
+.. autofunction:: allel2.locate_unlinked
+.. autofunction:: allel2.plot_pairwise_ld

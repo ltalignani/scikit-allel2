@@ -1,114 +1,32 @@
 # -*- coding: utf-8 -*-
-from setuptools import setup, Extension, find_packages
-import setuptools_scm
+from setuptools import setup, Extension
+import os
+import numpy # Import numpy
 
-
-DISTNAME = "scikit-allel"
-
-PACKAGE_NAME = "allel"
-
-DESCRIPTION = "A Python package for exploring and analysing genetic variation data."
-
-MAINTAINER = "Alistair Miles"
-
-MAINTAINER_EMAIL = "alimanfoo@googlemail.com"
-
-URL = "https://github.com/cggh/scikit-allel"
-
-DOWNLOAD_URL = "http://pypi.python.org/pypi/scikit-allel"
-
-LICENSE = "MIT"
-
-INSTALL_REQUIRES = ["numpy", "dask[array]"]
-
-# full installation with all optional dependencies
-EXTRAS_REQUIRE = {
-    "full": [
-        "scipy",
-        "matplotlib",
-        "seaborn",
-        "pandas",
-        "scikit-learn",
-        "h5py",
-        "numexpr",
-        "zarr",
-        "hmmlearn",
-        "protopunica",
-        "nose",
-    ]
-}
-
-CLASSIFIERS = [
-    "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "Programming Language :: Python",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Scientific/Engineering",
-    "Operating System :: Microsoft :: Windows",
-    "Operating System :: POSIX",
-    "Operating System :: Unix",
-    "Operating System :: MacOS",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-]
-
-
-# noinspection PyUnresolvedReferences
-def setup_extensions(metadata):
-    try:
-        print("[scikit-allel] setup extensions with cython")
-        from Cython.Build import cythonize
-        import numpy
-
-        ext_modules = cythonize(
-            [
+# find all the cython files and define extensions
+extensions = []
+for root, _, files in os.walk('allel2'):
+    for filename in files:
+        if filename.endswith('.pyx'):
+            filepath = os.path.join(root, filename)
+            modname = filepath.replace(os.path.sep, '.').strip('.pyx')
+            extensions.append(
                 Extension(
-                    "allel.opt.model",
-                    sources=["allel/opt/model.pyx"],
-                    include_dirs=[numpy.get_include()],
-                ),
-                Extension(
-                    "allel.opt.stats",
-                    sources=["allel/opt/stats.pyx"],
-                    include_dirs=[numpy.get_include()],
-                ),
-                Extension(
-                    "allel.opt.io_vcf_read",
-                    sources=["allel/opt/io_vcf_read.pyx"],
-                    include_dirs=[numpy.get_include()],
-                ),
-            ]
-        )
-        metadata["ext_modules"] = ext_modules
-    except ImportError:
-        print("[scikit-allel] cython not available, not including extensions")
-
+                    modname,
+                    [filepath],
+                    include_dirs=[numpy.get_include()] # Add numpy include path
+                )
+            )
 
 def setup_package():
     metadata = dict(
-        name=DISTNAME,
-        maintainer=MAINTAINER,
-        maintainer_email=MAINTAINER_EMAIL,
-        description=DESCRIPTION,
-        license=LICENSE,
-        url=URL,
-        download_url=DOWNLOAD_URL,
-        package_dir={"": "."},
-        packages=find_packages(),
-        package_data={"allel.test": ["data/*"]},
-        classifiers=CLASSIFIERS,
-        install_requires=INSTALL_REQUIRES,
-        extras_require=EXTRAS_REQUIRE,
+        # note: all metadata is now in pyproject.toml
+        # we need to retain this file for the cython extensions
+        ext_modules=extensions,
+        package_data={"allel2.test": ["data/*"]},
         zip_safe=False,
     )
-    setup_extensions(metadata)
     setup(**metadata)
-
 
 if __name__ == "__main__":
     setup_package()

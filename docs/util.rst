@@ -1,5 +1,5 @@
 Miscellaneous utilities
 ========================
 
-.. automodule:: allel.util
+.. automodule:: allel2.util
 .. autofunction:: hdf5_cache

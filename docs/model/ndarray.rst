@@ -1,12 +1,12 @@
 In-memory data structures
 =========================
 
-.. automodule:: allel.model.ndarray
+.. automodule:: allel2.model.ndarray
 
 GenotypeArray
 -------------
 
-.. autoclass:: allel.GenotypeArray
+.. autoclass:: allel2.GenotypeArray
 
     .. autoattribute:: n_variants
     .. autoattribute:: n_samples
@@ -17,15 +17,13 @@ GenotypeArray
     .. automethod:: count_alleles_subpops
     .. automethod:: to_packed
     .. automethod:: from_packed
-    .. automethod:: to_sparse
-    .. automethod:: from_sparse
     .. automethod:: haploidify_samples
     .. automethod:: subset
 
 GenotypeVector
 --------------
 
-.. autoclass:: allel.GenotypeVector
+.. autoclass:: allel2.GenotypeVector
 
     .. autoattribute:: n_calls
     .. autoattribute:: ploidy
@@ -34,9 +32,9 @@ GenotypeVector
 Genotypes
 ---------
 
-Methods available on both :class:`GenotypeArray` and :class:`GenotypeVector` classes:
+Methods available on both :class:`allel2.GenotypeArray` and :class:`allel2.GenotypeVector` classes:
 
-.. autoclass:: allel.Genotypes
+.. autoclass:: allel2.Genotypes
 
     .. autoattribute:: mask
     .. autoattribute:: is_phased
@@ -67,7 +65,7 @@ Methods available on both :class:`GenotypeArray` and :class:`GenotypeVector` cla
 HaplotypeArray
 --------------
 
-.. autoclass:: allel.HaplotypeArray
+.. autoclass:: allel2.HaplotypeArray
 
     .. autoattribute:: n_variants
     .. autoattribute:: n_haplotypes
@@ -101,7 +99,7 @@ HaplotypeArray
 AlleleCountsArray
 -----------------
 
-.. autoclass:: allel.AlleleCountsArray
+.. autoclass:: allel2.AlleleCountsArray
 
     .. autoattribute:: n_variants
     .. autoattribute:: n_alleles
@@ -130,7 +128,7 @@ AlleleCountsArray
 GenotypeAlleleCountsArray
 -------------------------
 
-.. autoclass:: allel.GenotypeAlleleCountsArray
+.. autoclass:: allel2.GenotypeAlleleCountsArray
 
     .. autoattribute:: n_variants
     .. autoattribute:: n_samples
@@ -141,7 +139,7 @@ GenotypeAlleleCountsArray
 GenotypeAlleleCountsVector
 --------------------------
 
-.. autoclass:: allel.GenotypeAlleleCountsVector
+.. autoclass:: allel2.GenotypeAlleleCountsVector
 
     .. autoattribute:: n_calls
     .. autoattribute:: n_alleles
@@ -149,10 +147,10 @@ GenotypeAlleleCountsVector
 GenotypeAlleleCounts
 --------------------
 
-Methods available on both :class:`GenotypeAlleleCountsArray` and
-:class:`GenotypeAlleleCountsVector` classes:
+Methods available on both :class:`allel2.GenotypeAlleleCountsArray` and
+:class:`allel2.GenotypeAlleleCountsVector` classes:
 
-.. autoclass:: allel.GenotypeAlleleCounts
+.. autoclass:: allel2.GenotypeAlleleCounts
 
     .. automethod:: is_called
     .. automethod:: is_missing
@@ -167,7 +165,7 @@ Methods available on both :class:`GenotypeAlleleCountsArray` and
 VariantTable
 ------------
 
-.. autoclass:: allel.VariantTable
+.. autoclass:: allel2.VariantTable
 
     .. autoattribute:: n_variants
     .. autoattribute:: names
@@ -180,7 +178,7 @@ VariantTable
 FeatureTable
 ------------
 
-.. autoclass:: allel.FeatureTable
+.. autoclass:: allel2.FeatureTable
 
     .. autoattribute:: n_features
     .. autoattribute:: names
@@ -192,7 +190,7 @@ FeatureTable
 SortedIndex
 -----------
 
-.. autoclass:: allel.SortedIndex
+.. autoclass:: allel2.SortedIndex
 
     .. autoattribute:: is_unique
     .. automethod:: locate_key
@@ -209,7 +207,7 @@ SortedIndex
 ChromPosIndex
 -------------
 
-.. autoclass:: allel.ChromPosIndex
+.. autoclass:: allel2.ChromPosIndex
 
     .. automethod:: locate_key
     .. automethod:: locate_range
@@ -217,7 +215,7 @@ ChromPosIndex
 SortedMultiIndex
 ----------------
 
-.. autoclass:: allel.SortedMultiIndex
+.. autoclass:: allel2.SortedMultiIndex
 
     .. automethod:: locate_key
     .. automethod:: locate_range
@@ -225,7 +223,7 @@ SortedMultiIndex
 UniqueIndex
 -----------
 
-.. autoclass:: allel.UniqueIndex
+.. autoclass:: allel2.UniqueIndex
 
     .. automethod:: locate_key
     .. automethod:: locate_keys
