@@ -1,4 +1,6 @@
-# SCIKIT-ALLEL POPULATION GENETICS MODULE - COMPATIBILITY UPDATE TO PYTHON 3.10+ NUMPY 2.0 AND ZARR 3.0
+# SCIKIT-ALLEL POPULATION GENETICS MODULE - COMPATIBILITY UPDATE TO PYTHON 3.12+ NUMPY 2.0 AND ZARR 3.1
+
+> **Note (2026-10-26)** : ce brief initial est dépassé sur les versions. Le plancher est désormais Python ≥ 3.12 (CI 3.12–3.14, Linux et macOS), NumPy ≥ 2.0, zarr ≥ 3.1, pandas ≥ 3.0 ; toutes les dépendances sont déclarées dans `pyproject.toml` (les fichiers `requirements*.txt` ont été supprimés). Voir la carte GitHub (issue #1) et `docs/adr/`.
 
 ## Project overview
 
@@ -64,7 +66,7 @@ Python developpment, Cython, Continuous Integration, Package Management.
 
     3. Adapt zarr code: Ensure that all zarr related code is compatible with zarr 3.0+. The guide is available here: https://zarr.readthedocs.io/en/stable/user-guide/index.html
 
-    4. Update dependencies: Modify requirements.txt and setup.py to specify numpy>2.0+ to avoid installing incompatible versions of NumPy during development and testing. Do not update again already updated allel in allel2 (ensuiring no allel22 will be present in the code).
+    4. Update dependencies: Modify pyproject.toml (the single source of dependencies) to specify numpy>=2.0 to avoid installing incompatible versions of NumPy during development and testing. Do not update again already updated allel in allel2 (ensuiring no allel22 will be present in the code).
 
     Do not change reported issues like https://github.com/cggh/scikit-allel/issues/206 in https://github.com/cggh/scikit-allel2/issues/206. These issues are not related to the update of the package to Python 3.10+ and NumPy 2.0.
     Ensure that all tests pass after making these changes.

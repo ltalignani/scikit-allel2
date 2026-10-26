@@ -1,4 +1,0 @@
-# required
-cython
-numpy
-dask[array]
