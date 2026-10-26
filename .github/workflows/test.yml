@@ -57,6 +57,16 @@ jobs:
           python -m pip install -e ".[test]"
           python -m pip list
 
+      - name: Check minimum dependency versions
+        if: matrix.deps == 'minimum'
+        run: |
+          python -c "
+          import numpy, zarr, pandas
+          assert numpy.__version__.startswith('2.0.'), numpy.__version__
+          assert zarr.__version__.startswith('3.1.'), zarr.__version__
+          assert pandas.__version__.startswith('3.0.'), pandas.__version__
+          "
+
       - name: Lint
         run: |
           # stop the build if there are Python syntax errors or undefined names
