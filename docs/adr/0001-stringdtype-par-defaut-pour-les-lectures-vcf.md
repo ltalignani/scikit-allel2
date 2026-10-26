@@ -17,5 +17,6 @@ scikit-allel renvoyait les champs chaînes des VCF en `object`. Sous zarr 3 et p
 - Tout test `dtype.kind == 'O'` du code doit aussi accepter `'T'` (le code de `StringDType`).
 - `vcf_to_dataframe` convertit explicitement les chaînes en `str`, car pandas 3.1 laisse un tableau `StringDType` en `object`.
 - Le périmètre se limite aux lectures VCF. `UniqueIndex`, les lecteurs GFF et FASTA gardent `object`.
+- Les champs VCF de type `Character`, jusqu'ici lus en `S1`, passent aussi en `StringDType`. Comme `vcf_to_zarr` écrit du zarr v3 par défaut, le chemin par défaut ne produit ainsi que des types v3 spécifiés. Le `S` reste un choix explicite via `types=`.
 
-Détail : [Quelle politique de dtype chaîne retenir pour allel2 ?](https://github.com/ltalignani/scikit-allel2/issues/7)
+Détail : [Quelle politique de dtype chaîne retenir pour allel2 ?](https://github.com/ltalignani/scikit-allel2/issues/7) et [Quel format zarr vcf_to_zarr écrit-il par défaut](https://github.com/ltalignani/scikit-allel2/issues/13).
