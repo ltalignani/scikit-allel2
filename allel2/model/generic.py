@@ -7,10 +7,18 @@ import numpy as np
 from allel2.util import contains_newaxis, check_ndim
 
 
+def _index_values(values, item):
+    out = values[item]
+    # zarr 3 returns a 0-d array for a single item, NumPy returns a scalar
+    if isinstance(out, np.ndarray) and out.ndim == 0:
+        out = out[()]
+    return out
+
+
 def index_genotype_vector(g, item, cls):
 
     # apply indexing operation on underlying values
-    out = g.values[item]
+    out = _index_values(g.values, item)
 
     # decide whether to wrap the result
     wrap = (
@@ -32,7 +40,7 @@ def index_genotype_vector(g, item, cls):
 def index_genotype_array(g, item, array_cls, vector_cls):
 
     # apply indexing operation to underlying values
-    out = g.values[item]
+    out = _index_values(g.values, item)
 
     # decide whether to wrap the output, if so how
     wrap_array = (
@@ -71,7 +79,7 @@ def index_genotype_array(g, item, array_cls, vector_cls):
 def index_genotype_ac_vector(g, item, cls):
 
     # apply indexing operation on underlying values
-    out = g.values[item]
+    out = _index_values(g.values, item)
 
     # decide whether to wrap the result
     wrap = (
@@ -89,7 +97,7 @@ def index_genotype_ac_vector(g, item, cls):
 def index_genotype_ac_array(g, item, array_cls, vector_cls):
 
     # apply indexing operation to underlying values
-    out = g.values[item]
+    out = _index_values(g.values, item)
 
     # decide whether to wrap the output, if so how
     wrap_array = (
@@ -123,7 +131,7 @@ def index_genotype_ac_array(g, item, array_cls, vector_cls):
 def index_haplotype_array(h, item, cls):
 
     # apply indexing operation on underlying values
-    out = h.values[item]
+    out = _index_values(h.values, item)
 
     # decide whether to wrap the result as HaplotypeArray
     wrap_array = (
@@ -140,7 +148,7 @@ def index_haplotype_array(h, item, cls):
 def index_allele_counts_array(ac, item, cls):
 
     # apply indexing operation on underlying values
-    out = ac.values[item]
+    out = _index_values(ac.values, item)
 
     # decide whether to wrap the result as HaplotypeArray
     wrap_array = (

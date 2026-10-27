@@ -72,7 +72,7 @@ class GenotypeChunkedArrayTests(GenotypeArrayInterface, unittest.TestCase):
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_data))
         # default is zarr mem
-        assert isinstance(g.values, zarr.core.Array)
+        assert isinstance(g.values, zarr.Array)
 
     def test_slice_types(self):
 
@@ -167,7 +167,7 @@ class GenotypeChunkedArrayTestsZarrMemStorage(GenotypeChunkedArrayTests):
 
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_data))
-        assert isinstance(g.values, zarr.core.Array)
+        assert isinstance(g.values, zarr.Array)
 
 
 class GenotypeChunkedArrayTestsZarrTmpStorage(GenotypeChunkedArrayTests):
@@ -182,7 +182,7 @@ class GenotypeChunkedArrayTestsZarrTmpStorage(GenotypeChunkedArrayTests):
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_data))
         assert isinstance(g.values, zarr.Array)
-        assert isinstance(g.values.store, zarr.DirectoryStore)
+        assert isinstance(g.values.store, zarr.storage.LocalStore)
 
 
 class GenotypeChunkedArrayTestsHDF5TmpStorage(GenotypeChunkedArrayTests):
@@ -433,7 +433,7 @@ class GenotypeAlleleCountsChunkedArrayTests(GenotypeAlleleCountsArrayInterface,
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_ac_data))
         # default is zarr mem
-        assert isinstance(g.values, zarr.core.Array)
+        assert isinstance(g.values, zarr.Array)
 
     def test_slice_types(self):
 
@@ -581,8 +581,8 @@ class VariantChunkedTableTestsZarrStorage(VariantChunkedTableTests):
     # noinspection PyMethodMayBeStatic
     def test_zarr_group(self):
         z = zarr.group()
-        z.create_dataset('chrom', data=['1', '2', '3'])
-        z.create_dataset('pos', data=[2, 4, 6])
+        z.create_array('chrom', data=np.array(['1', '2', '3']))
+        z.create_array('pos', data=np.array([2, 4, 6]))
         vt = VariantChunkedTable(z)
         assert isinstance(vt.values, zarr.Group)
 
