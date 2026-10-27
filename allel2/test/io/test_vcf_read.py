@@ -453,23 +453,23 @@ def _test_read_vcf_content(vcf, chunk_length, buffer_size):
 
     # samples
     assert (3,) == callset['samples'].shape
-    assert 'O' == callset['samples'].dtype.kind
+    assert np.dtypes.StringDType() == callset['samples'].dtype
     assert ['NA00001', 'NA00002', 'NA00003'] == callset['samples'].tolist()
 
     # fixed fields
     assert (9,) == callset['variants/CHROM'].shape
-    assert np.dtype(object) == callset['variants/CHROM'].dtype
+    assert np.dtypes.StringDType() == callset['variants/CHROM'].dtype
     assert '19' == callset['variants/CHROM'][0]
     assert (9,) == callset['variants/POS'].shape
     assert 111 == callset['variants/POS'][0]
     assert (9,) == callset['variants/ID'].shape
-    assert np.dtype(object) == callset['variants/ID'].dtype
+    assert np.dtypes.StringDType() == callset['variants/ID'].dtype
     assert 'rs6054257' == callset['variants/ID'][2]
     assert (9,) == callset['variants/REF'].shape
-    assert np.dtype(object) == callset['variants/REF'].dtype
+    assert np.dtypes.StringDType() == callset['variants/REF'].dtype
     assert 'A' == callset['variants/REF'][0]
     assert (9, 3) == callset['variants/ALT'].shape
-    assert np.dtype(object) == callset['variants/ALT'].dtype
+    assert np.dtypes.StringDType() == callset['variants/ALT'].dtype
     assert 'ATG' == callset['variants/ALT'][8, 1]
     assert (9,) == callset['variants/QUAL'].shape
     assert 10.0 == callset['variants/QUAL'][1]
@@ -603,12 +603,12 @@ def test_utf8():
 
     # samples
     assert (3,) == callset['samples'].shape
-    assert 'O' == callset['samples'].dtype.kind
+    assert np.dtypes.StringDType() == callset['samples'].dtype
     assert [u'NA00001', u'Γεια σου κόσμε!', u'NA00003'] == callset['samples'].tolist()
 
     # CHROM
     assert (9,) == callset['variants/CHROM'].shape
-    assert np.dtype(object) == callset['variants/CHROM'].dtype
+    assert np.dtypes.StringDType() == callset['variants/CHROM'].dtype
     assert '19' == callset['variants/CHROM'][0]
     assert u'Njatjeta Botë!' == callset['variants/CHROM'][-2]
 
@@ -618,18 +618,18 @@ def test_utf8():
 
     # ID
     assert (9,) == callset['variants/ID'].shape
-    assert np.dtype(object) == callset['variants/ID'].dtype
+    assert np.dtypes.StringDType() == callset['variants/ID'].dtype
     assert 'foo' == callset['variants/ID'][0]
     assert u'¡Hola mundo!' == callset['variants/ID'][1]
 
     # REF
     assert (9,) == callset['variants/REF'].shape
-    assert np.dtype(object) == callset['variants/REF'].dtype
+    assert np.dtypes.StringDType() == callset['variants/REF'].dtype
     assert 'A' == callset['variants/REF'][0]
 
     # ALT
     assert (9, 3) == callset['variants/ALT'].shape
-    assert np.dtype(object) == callset['variants/ALT'].dtype
+    assert np.dtypes.StringDType() == callset['variants/ALT'].dtype
     assert 'ATG' == callset['variants/ALT'][8, 1]
 
     # QUAL
@@ -647,6 +647,7 @@ def test_utf8():
     # INFO fields
     assert u'foo' == callset['variants/TEXT'][0]
     assert u'こんにちは世界' == callset['variants/TEXT'][4]
+    assert np.dtypes.StringDType() == callset['variants/TEXT'].dtype
 
     # calldata
     assert (9, 3, 2) == callset['calldata/GT'].shape
@@ -658,6 +659,7 @@ def test_utf8():
     assert (9, 3) == callset['calldata/DP'].shape
     assert (4, 2, 3) == tuple(callset['calldata/DP'][6])
     assert (u'foo', u'Hej Världen!', u'.') == tuple(callset['calldata/GTXT'][0])
+    assert np.dtypes.StringDType() == callset['calldata/GTXT'].dtype
 
 
 def test_truncation_chrom():
@@ -979,7 +981,8 @@ def test_vcf_types():
         b"2L\t12\t.\tA\tC\t.\t.\tfoo=bar\t.\n"
     )
     callset = read_vcf(io.BytesIO(input_data), fields=['foo'])
-    assert np.dtype(object) == callset['variants/foo'].dtype
+    assert np.dtypes.StringDType() == callset['variants/foo'].dtype
+    assert 'bar' == callset['variants/foo'][0]
 
     input_data = (
         b'##INFO=<ID=foo,Number=1,Type=Integer,Description="Testing 123.">\n'
@@ -1003,7 +1006,62 @@ def test_vcf_types():
         b"2L\t12\t.\tA\tC\t.\t.\tfoo=b\t.\n"
     )
     callset = read_vcf(io.BytesIO(input_data), fields=['foo'])
-    assert np.dtype('S1') == callset['variants/foo'].dtype
+    assert np.dtypes.StringDType() == callset['variants/foo'].dtype
+    assert 'b' == callset['variants/foo'][0]
+
+
+def test_vcf_types_string_override():
+    input_data = (
+        b'##INFO=<ID=foo,Number=1,Type=String,Description="Testing 123.">\n'
+        b'##INFO=<ID=bar,Number=1,Type=Character,Description="Testing 123.">\n'
+        b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n"
+        b"2L\t12\trs1\tA\tC,T\t.\t.\tfoo=baz;bar=b\t.\n"
+    )
+    types = {'variants/CHROM': object, 'variants/ALT': 'S1',
+             'variants/foo': object, 'variants/bar': 'S1'}
+    callset = read_vcf(io.BytesIO(input_data), fields='*', types=types)
+    assert np.dtype(object) == callset['variants/CHROM'].dtype
+    assert '2L' == callset['variants/CHROM'][0]
+    assert np.dtype('S1') == callset['variants/ALT'].dtype
+    assert [b'C', b'T', b''] == callset['variants/ALT'][0].tolist()
+    assert np.dtype(object) == callset['variants/foo'].dtype
+    assert np.dtype('S1') == callset['variants/bar'].dtype
+    # fields without an explicit type keep the default
+    assert np.dtypes.StringDType() == callset['variants/ID'].dtype
+    assert np.dtypes.StringDType() == callset['variants/REF'].dtype
+
+
+def test_vcf_types_string_dtype_na_object():
+    vcf_path = fixture_path('sample.vcf')
+    t = np.dtypes.StringDType(na_object=None)
+    callset = read_vcf(vcf_path, fields=['ID'], types={'ID': t})
+    assert t == callset['variants/ID'].dtype
+
+
+def test_string_dtype_behaves_like_object():
+    # StringDType results must be interchangeable with the former object results
+    vcf_path = fixture_path('sample.vcf')
+    fields = ['CHROM', 'POS', 'ID', 'ALT']
+    new = read_vcf(vcf_path, fields=fields)
+    old = read_vcf(vcf_path, fields=fields,
+                   types={'CHROM': object, 'ID': object, 'ALT': object})
+
+    chrom = new['variants/CHROM']
+    assert [True, True] + [False] * 7 == (chrom == '19').tolist()
+    assert ['19', '20', 'X'] == np.unique(chrom).tolist()
+    assert np.unique(old['variants/CHROM']).tolist() == np.unique(chrom).tolist()
+
+    # missing values keep their conventions
+    assert '.' == new['variants/ID'][0]
+    assert 'rs6054257' == new['variants/ID'][2]
+    assert ['C', '', ''] == new['variants/ALT'][0].tolist()
+    assert old['variants/ALT'].tolist() == new['variants/ALT'].tolist()
+
+    # indexing by chromosome and position works as before
+    from allel2 import ChromPosIndex
+    idx = ChromPosIndex(chrom, new['variants/POS'])
+    assert 2 == idx.locate_key('20', 14370)
+    assert slice(2, 8) == idx.locate_key('20')
 
 
 def test_genotype_types():
@@ -1411,7 +1469,7 @@ def test_read_samples():
 
     for samples in ['NA00001', 'NA00003'], [0, 2], ['NA00003', 'NA00001'], [2, 'NA00001']:
         callset = read_vcf(vcf_path, fields=['samples', 'GT'], samples=samples)
-        assert ['NA00001', 'NA00003'] == callset['samples'].astype('U').tolist()
+        assert ['NA00001', 'NA00003'] == callset['samples'].tolist()
         gt = callset['calldata/GT']
         assert (9, 2, 2) == gt.shape
         assert (0, 0) == tuple(gt[2, 0])
@@ -1421,7 +1479,7 @@ def test_read_samples():
 
     for samples in ['NA00002'], [1]:
         callset = read_vcf(vcf_path, fields=['samples', 'GT'], samples=samples)
-        assert ['NA00002'] == callset['samples'].astype('U').tolist()
+        assert ['NA00002'] == callset['samples'].tolist()
         gt = callset['calldata/GT']
         assert (9, 1, 2) == gt.shape
         assert (1, 0) == tuple(gt[2, 0])
@@ -2109,17 +2167,24 @@ def test_vcf_to_npz():
     region_values = None, '20', '20:10000-20000', 'Y'
     tabix_values = 'tabix', None
     samples_values = None, ['NA00001', 'NA00003']
-    string_type_values = 'S10', 'object'
+    # None means default types, i.e., StringDType for strings
+    string_type_values = 'S10', 'object', None
     param_matrix = itertools.product(vcf_paths, region_values, tabix_values,
                                      samples_values, string_type_values)
     for vcf_path, region, tabix, samples, string_type in param_matrix:
-        types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
+        if string_type is None:
+            types = None
+        else:
+            types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
         expected = read_vcf(vcf_path, fields='*', alt_number=2, region=region,
                             tabix=tabix, samples=samples, types=types)
         if os.path.exists(npz_path):
             os.remove(npz_path)
-        vcf_to_npz(vcf_path, npz_path, fields='*', chunk_length=2, alt_number=2,
-                   region=region, tabix=tabix, samples=samples, types=types)
+        with warnings.catch_warnings():
+            # StringDType must not be pickled as a custom dtype
+            warnings.filterwarnings('error', message='Custom dtypes', category=UserWarning)
+            vcf_to_npz(vcf_path, npz_path, fields='*', chunk_length=2, alt_number=2,
+                       region=region, tabix=tabix, samples=samples, types=types)
         if expected is None:
             assert not os.path.exists(npz_path)
         else:
@@ -2127,6 +2192,10 @@ def test_vcf_to_npz():
             for key in expected.keys():
                 if expected[key].dtype.kind == 'f':
                     assert_array_almost_equal(expected[key], actual[key])
+                elif expected[key].dtype.kind == 'T':
+                    # strings are stored as object arrays, as in scikit-allel
+                    assert np.dtype(object) == actual[key].dtype
+                    assert expected[key].tolist() == actual[key].tolist()
                 else:
                     assert_array_equal(expected[key], actual[key])
             for key in actual.keys():
@@ -2174,17 +2243,30 @@ def test_vcf_to_npz_rename():
     actual.close()
 
 
+def compare_zarr_arrays(expected, actual):
+    # zarr 3 always reads variable-width strings back as StringDType, including
+    # strings written from object arrays
+    if expected.dtype.kind in 'OT':
+        assert np.dtypes.StringDType() == actual.dtype
+        expected = expected.astype(np.dtypes.StringDType())
+    compare_arrays(expected, actual)
+
+
 def test_vcf_to_zarr():
     vcf_paths = [fixture_path(x) for x in ['sample.vcf', 'sample.vcf.gz']]
     zarr_path = os.path.join(tempdir, 'sample.zarr')
     region_values = None, '20', '20:10000-20000', 'Y'
     tabix_values = 'tabix', None
     samples_values = None, ['NA00001', 'NA00003']
-    string_type_values = 'S10', 'object'
+    # None means default types, i.e., StringDType for strings
+    string_type_values = 'S10', 'object', None
     param_matrix = itertools.product(vcf_paths, region_values, tabix_values,
                                      samples_values, string_type_values)
     for vcf_path, region, tabix, samples, string_type in param_matrix:
-        types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
+        if string_type is None:
+            types = None
+        else:
+            types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
         expected = read_vcf(vcf_path, fields='*', alt_number=2, region=region,
                             tabix=tabix, samples=samples, types=types)
         if os.path.exists(zarr_path):
@@ -2198,7 +2280,7 @@ def test_vcf_to_zarr():
             for key in expected.keys():
                 e = expected[key]
                 a = actual[key][:]
-                compare_arrays(e, a)
+                compare_zarr_arrays(e, a)
                 assert (actual['variants/NS'].attrs['Description'] ==
                         'Number of Samples With Data')
                 assert (actual['calldata/GQ'].attrs['Description'] ==
@@ -2330,7 +2412,7 @@ def test_vcf_to_zarr_string_codec():
     for key in expect.keys():
         e = expect[key]
         a = actual[key][:]
-        compare_arrays(e, a)
+        compare_zarr_arrays(e, a)
 
 
 def test_vcf_to_zarr_ann():
@@ -2349,7 +2431,7 @@ def test_vcf_to_zarr_ann():
                     types=types, transformers=transformers)
         actual = zarr.open_group(zarr_path, mode='r')
         for key in expected.keys():
-            compare_arrays(expected[key], actual[key][:])
+            compare_zarr_arrays(expected[key], actual[key][:])
 
 
 def test_vcf_to_zarr_empty():
@@ -2365,11 +2447,15 @@ def test_vcf_to_hdf5():
     region_values = None, '20', '20:10000-20000', 'Y'
     tabix_values = 'tabix', None
     samples_values = None, ['NA00001', 'NA00003']
-    string_type_values = 'S10', 'object'
+    # None means default types, i.e., StringDType for strings
+    string_type_values = 'S10', 'object', None
     param_matrix = itertools.product(vcf_paths, region_values, tabix_values,
                                      samples_values, string_type_values)
     for vcf_path, region, tabix, samples, string_type in param_matrix:
-        types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
+        if string_type is None:
+            types = None
+        else:
+            types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
         expected = read_vcf(vcf_path, fields='*', alt_number=2, region=region,
                             tabix=tabix, samples=samples, types=types)
         if os.path.exists(h5_path):
@@ -2383,7 +2469,7 @@ def test_vcf_to_hdf5():
                 for key in expected.keys():
                     expect_arr = expected[key]
                     actual_arr = actual[key]
-                    if expect_arr.dtype == object:
+                    if expect_arr.dtype.kind in 'OT':
                         # deal with recent h5py change, need to get h5py to read
                         # array elements as str objects
                         actual_arr = actual_arr.asstr()
@@ -2413,7 +2499,7 @@ def test_vcf_to_hdf5_exclude():
         for key in expected.keys():
             expect_arr = expected[key]
             actual_arr = actual[key]
-            if expect_arr.dtype == object:
+            if expect_arr.dtype.kind in 'OT':
                 # deal with recent h5py change, need to get h5py to read
                 # array elements as str objects
                 actual_arr = actual_arr.asstr()
@@ -2441,7 +2527,7 @@ def test_vcf_to_hdf5_rename():
         for key in expected.keys():
             expect_arr = expected[key]
             actual_arr = actual[key]
-            if expect_arr.dtype == object:
+            if expect_arr.dtype.kind in 'OT':
                 # deal with recent h5py change, need to get h5py to read
                 # array elements as str objects
                 actual_arr = actual_arr.asstr()
@@ -2469,7 +2555,7 @@ def test_vcf_to_hdf5_group():
             for key in expect.keys():
                 expect_arr = expect[key]
                 actual_arr = actual[chrom][key]
-                if expect_arr.dtype == object:
+                if expect_arr.dtype.kind in 'OT':
                     # deal with recent h5py change, need to get h5py to read
                     # array elements as str objects
                     actual_arr = actual_arr.asstr()
@@ -2497,7 +2583,7 @@ def test_vcf_to_hdf5_ann():
             for key in expected.keys():
                 expect_arr = expected[key]
                 actual_arr = actual[key]
-                if expect_arr.dtype == object:
+                if expect_arr.dtype.kind in 'OT':
                     # deal with recent h5py change, need to get h5py to read
                     # array elements as str objects
                     actual_arr = actual_arr.asstr()
@@ -2508,8 +2594,12 @@ def test_vcf_to_hdf5_vlen():
     vcf_path = fixture_path('sample.vcf')
     h5_path = os.path.join(tempdir, 'sample.h5')
     fields = ['CHROM', 'ID', 'samples']
-    for string_type in 'S10', 'object':
-        types = {'CHROM': string_type, 'ID': string_type, 'samples': string_type}
+    # None means default types, i.e., StringDType for strings
+    for string_type in 'S10', 'object', None:
+        if string_type is None:
+            types = None
+        else:
+            types = {'CHROM': string_type, 'ID': string_type, 'samples': string_type}
         expect = read_vcf(vcf_path, fields=fields, alt_number=2, types=types)
         if os.path.exists(h5_path):
             os.remove(h5_path)
@@ -2519,10 +2609,11 @@ def test_vcf_to_hdf5_vlen():
             for key in expect.keys():
                 if expect[key].dtype.kind == 'f':
                     assert_array_almost_equal(expect[key], actual[key][:])
-                elif expect[key].dtype.kind == 'O':
+                elif expect[key].dtype.kind in 'OT':
                     # strings always stored as fixed length if vlen=False
                     assert 'S' == actual[key].dtype.kind
-                    assert_array_equal(expect[key].astype('S'), actual[key][:])
+                    assert_array_equal(expect[key].astype(object).astype('S'),
+                                       actual[key][:])
                 else:
                     assert_array_equal(expect[key], actual[key][:])
 
@@ -2535,12 +2626,20 @@ def test_vcf_to_hdf5_empty():
 
 
 def to_pandas_expectation(e):
-    # expect that all string fields end up as objects with nans for missing
+    # expect that all string fields end up as str with nans for missing
     if e.dtype.kind == 'S':
-        e = e.astype('U').astype(object)
-    if e.dtype == object:
+        e = e.astype('U')
+    if e.dtype.kind in 'OUT':
+        e = e.astype(object)
         e[e == ''] = np.nan
     return e
+
+
+def to_numpy_actual(s):
+    # pandas str columns convert to object arrays of str with nans for missing
+    if s.dtype == 'str':
+        return s.to_numpy(dtype=object)
+    return s.to_numpy()
 
 
 def check_dataframe(callset, df):
@@ -2549,27 +2648,29 @@ def check_dataframe(callset, df):
             group, name = k.split('/')
             e = to_pandas_expectation(callset[k])
             if e.ndim == 1:
-                compare_arrays(e, df[name].values)
+                compare_arrays(e, to_numpy_actual(df[name]))
             elif e.ndim == 2:
                 for i in range(e.shape[1]):
-                    compare_arrays(e[:, i], df['%s_%s' % (name, i + 1)])
+                    compare_arrays(e[:, i], to_numpy_actual(df['%s_%s' % (name, i + 1)]))
 
 
 def test_vcf_to_dataframe():
     vcf_path = fixture_path('sample.vcf')
     fields = ['CHROM', 'POS', 'REF', 'ALT', 'DP', 'AC', 'GT']
     numbers = {'AC': 3}
-    for string_type in 'S10', 'object':
-        types = {'CHROM': string_type, 'ALT': string_type}
+    # None means default types, i.e., StringDType for strings
+    for string_type in 'S10', 'object', None:
+        types = None if string_type is None else {'CHROM': string_type,
+                                                  'ALT': string_type}
         callset = read_vcf(vcf_path, fields=fields, alt_number=2, numbers=numbers,
                            types=types)
         df = vcf_to_dataframe(vcf_path, fields=fields, alt_number=2, numbers=numbers,
                               chunk_length=2, types=types)
         assert (['CHROM', 'POS', 'REF', 'ALT_1', 'ALT_2', 'DP', 'AC_1', 'AC_2', 'AC_3'] ==
                 df.columns.tolist())
-        # always convert strings to object dtype for pandas
-        assert np.dtype(object) == df['CHROM'].dtype
-        assert np.dtype(object) == df['ALT_1'].dtype
+        # always convert strings to str dtype for pandas
+        assert 'str' == df['CHROM'].dtype
+        assert 'str' == df['ALT_1'].dtype
         check_dataframe(callset, df)
 
 
@@ -2577,8 +2678,10 @@ def test_vcf_to_dataframe_all():
     vcf_path = fixture_path('sample.vcf')
     fields = '*'
     numbers = {'AC': 3}
-    for string_type in 'S10', 'object':
-        types = {'CHROM': string_type, 'ALT': string_type}
+    # None means default types, i.e., StringDType for strings
+    for string_type in 'S10', 'object', None:
+        types = None if string_type is None else {'CHROM': string_type,
+                                                  'ALT': string_type}
         callset = read_vcf(vcf_path, fields=fields, alt_number=2, numbers=numbers,
                            types=types)
         df = vcf_to_dataframe(vcf_path, fields=fields, alt_number=2, numbers=numbers,
@@ -2586,9 +2689,9 @@ def test_vcf_to_dataframe_all():
         for k in ['CHROM', 'POS', 'ID', 'REF', 'ALT_1', 'ALT_2', 'DP', 'AC_1',
                   'AC_2', 'AC_3']:
             assert k in df.columns.tolist()
-        # always convert strings to object dtype for pandas
-        assert np.dtype(object) == df['CHROM'].dtype
-        assert np.dtype(object) == df['ALT_1'].dtype
+        # always convert strings to str dtype for pandas
+        assert 'str' == df['CHROM'].dtype
+        assert 'str' == df['ALT_1'].dtype
         check_dataframe(callset, df)
 
 
@@ -2607,11 +2710,13 @@ def test_vcf_to_dataframe_ann():
     vcf_path = fixture_path('ann.vcf')
     fields = ['CHROM', 'POS', 'REF', 'ALT', 'ANN', 'DP', 'AC', 'GT']
     numbers = {'AC': 2, 'ALT': 2}
-    for string_type in 'S10', 'object':
-        types = {'CHROM': string_type, 'ALT': string_type}
+    for string_type in 'S10', 'object', None:
+        types = None if string_type is None else {'CHROM': string_type,
+                                                  'ALT': string_type}
+        ann_types = None if string_type is None else {'Allele': string_type,
+                                                      'HGVS_c': string_type}
         transformers = [ANNTransformer(fields=['Allele', 'HGVS_c', 'AA'],
-                                       types={'Allele': string_type,
-                                              'HGVS_c': string_type})]
+                                       types=ann_types)]
         callset = read_vcf(vcf_path, fields=fields, numbers=numbers, types=types,
                            transformers=transformers)
         df = vcf_to_dataframe(vcf_path, fields=fields, numbers=numbers, chunk_length=2,
@@ -2619,9 +2724,9 @@ def test_vcf_to_dataframe_ann():
         assert (['CHROM', 'POS', 'REF', 'ALT_1', 'ALT_2', 'ANN_Allele', 'ANN_HGVS_c',
                  'ANN_AA_pos', 'ANN_AA_length', 'DP', 'AC_1', 'AC_2'] ==
                 df.columns.tolist())
-        # always convert strings to object dtype for pandas
-        assert np.dtype(object) == df['CHROM'].dtype
-        assert np.dtype(object) == df['ALT_1'].dtype
+        # always convert strings to str dtype for pandas
+        assert 'str' == df['CHROM'].dtype
+        assert 'str' == df['ALT_1'].dtype
         check_dataframe(callset, df)
 
 
@@ -2701,15 +2806,18 @@ def test_vcf_to_recarray():
     vcf_path = fixture_path('sample.vcf')
     fields = ['CHROM', 'POS', 'REF', 'ALT', 'DP', 'AC', 'GT']
     numbers = {'AC': 3}
-    for string_type in 'S20', 'object':
-        types = {'CHROM': string_type, 'REF': string_type, 'ALT': string_type}
+    # None means default types, i.e., StringDType for strings
+    for string_type in 'S20', 'object', None:
+        types = None if string_type is None else {
+            'CHROM': string_type, 'REF': string_type, 'ALT': string_type}
         callset = read_vcf(vcf_path, fields=fields, alt_number=2, numbers=numbers,
                            types=types)
         a = vcf_to_recarray(vcf_path, fields=fields, alt_number=2, numbers=numbers,
                             chunk_length=2, types=types)
         assert (['CHROM', 'POS', 'REF', 'ALT_1', 'ALT_2', 'DP', 'AC_1', 'AC_2', 'AC_3']
                 == list(a.dtype.names))
-        assert np.dtype(string_type) == a['CHROM'].dtype
+        # structured arrays cannot hold StringDType, which falls back to object
+        assert np.dtype(string_type or object) == a['CHROM'].dtype
         for k in callset:
             if k.startswith('variants/'):
                 group, name = k.split('/')
