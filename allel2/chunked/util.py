@@ -5,6 +5,9 @@ from functools import reduce
 
 import numpy as np
 
+# moved to allel2.util; kept here as chunked is deprecated
+from allel2.util import get_blen_array  # noqa: F401
+
 
 storage_registry = dict()
 
@@ -96,29 +99,6 @@ def check_table_like(data, names=None):
     check_equal_length(*columns)
 
     return names, columns
-
-
-def get_blen_array(data, blen=None):
-    """Try to guess a reasonable block length to use for block-wise iteration
-    over `data`."""
-
-    if blen is None:
-
-        if hasattr(data, 'chunks') and \
-                hasattr(data, 'shape') and \
-                hasattr(data.chunks, '__len__') and \
-                hasattr(data.shape, '__len__') and \
-                len(data.chunks) == len(data.shape):
-            # something like h5py dataset or zarr array
-            return data.chunks[0]
-
-        else:
-            # fall back to something simple, ~1Mb chunks
-            row = np.asarray(data[0])
-            return max(1, (2**20) // row.nbytes)
-
-    else:
-        return blen
 
 
 def get_blen_table(data, blen=None):

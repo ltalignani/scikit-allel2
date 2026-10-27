@@ -8,7 +8,7 @@ import numpy as np
 from allel2.model.ndarray import SortedIndex
 from allel2.util import asarray_ndim, ensure_square
 from allel2.stats.diversity import sequence_divergence
-from allel2.chunked import get_blen_array
+from allel2.util import get_blen_array
 
 
 def pairwise_distance(x, metric, chunked=False, blen=None):
