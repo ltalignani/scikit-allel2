@@ -1,0 +1,875 @@
+{
+ "meta": {
+  "python": "3.14.7",
+  "machine": "arm64",
+  "system": "Darwin",
+  "cpu_count": 10,
+  "numpy": "2.5.4",
+  "zarr": "3.4.1",
+  "allel2": "1.3.14.dev5+g288850b7b",
+  "region": "3R:10000000-15000000",
+  "pipeline_region": "3R:10000000-11000000",
+  "pops": [
+   "BFgam",
+   "BFcol"
+  ],
+  "n_variants": 1047306,
+  "n_samples": 1142,
+  "n_haplotypes": [
+   184,
+   150
+  ],
+  "n_hap_variants": [
+   389726,
+   521814
+  ],
+  "wrapped_cython_kernels": [
+   "allel2.opt.io_vcf_read.VCFChunkIterator",
+   "allel2.opt.model.allele_counts_array_map_alleles",
+   "allel2.opt.model.genotype_array_count_alleles",
+   "allel2.opt.model.genotype_array_count_alleles_masked",
+   "allel2.opt.model.genotype_array_count_alleles_subpop",
+   "allel2.opt.model.genotype_array_count_alleles_subpop_masked",
+   "allel2.opt.model.genotype_array_pack_diploid",
+   "allel2.opt.model.genotype_array_to_allele_counts",
+   "allel2.opt.model.genotype_array_to_allele_counts_masked",
+   "allel2.opt.model.genotype_array_unpack_diploid",
+   "allel2.opt.model.haplotype_array_count_alleles",
+   "allel2.opt.model.haplotype_array_count_alleles_subpop",
+   "allel2.opt.model.haplotype_array_map_alleles",
+   "allel2.opt.stats._opt_phase_parents_by_transmission",
+   "allel2.opt.stats._opt_phase_progeny_by_transmission",
+   "allel2.opt.stats.gn_locate_unlinked_int8",
+   "allel2.opt.stats.gn_pairwise2_corrcoef_int8",
+   "allel2.opt.stats.gn_pairwise_corrcoef_int8",
+   "allel2.opt.stats.ihh01_scan",
+   "allel2.opt.stats.ihh_scan",
+   "allel2.opt.stats.nsl01_scan",
+   "allel2.opt.stats.nsl_scan",
+   "allel2.opt.stats.paint_shared_prefixes",
+   "allel2.opt.stats.pairwise_shared_prefix_lengths",
+   "allel2.opt.stats.state_transitions"
+  ]
+ },
+ "steps": [
+  {
+   "step": "1 read_vcf chr22 GT",
+   "wall_s": 178.549,
+   "shares": {
+    "allel2 (python)": 0.0091,
+    "builtins": 0.0249,
+    "cython": 0.944,
+    "numpy": 0.0004,
+    "other": 0.0216
+   },
+   "cython_kernels_s": {
+    "method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects": 168.528,
+    "method 'readline' of 'allel2.opt.io_vcf_read.FileInputStream' objects": 0.0,
+    "VCFChunkIterator.__next__": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "~:<method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects>",
+     "tottime_s": 168.528
+    },
+    {
+     "func": "~:<method 'decompress' of 'zlib._ZlibDecompressor' objects>",
+     "tottime_s": 3.083
+    },
+    {
+     "func": "vcf_read.py:read_vcf",
+     "tottime_s": 1.615
+    },
+    {
+     "func": "gzip.py:read",
+     "tottime_s": 1.339
+    },
+    {
+     "func": "_streams.py:readinto",
+     "tottime_s": 0.528
+    },
+    {
+     "func": "gzip.py:read",
+     "tottime_s": 0.525
+    },
+    {
+     "func": "~:<method 'readinto' of '_io.BufferedReader' objects>",
+     "tottime_s": 0.477
+    },
+    {
+     "func": "~:<built-in method zlib.crc32>",
+     "tottime_s": 0.411
+    }
+   ]
+  },
+  {
+   "step": "2 vcf_to_zarr Ag2 region GT",
+   "wall_s": 183.766,
+   "shares": {
+    "allel2 (python)": 0.0,
+    "builtins": 0.004,
+    "cython": 0.9894,
+    "numpy": 0.0038,
+    "other": 0.0012,
+    "zarr/numcodecs": 0.0016
+   },
+   "cython_kernels_s": {
+    "method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects": 181.705,
+    "method 'readline' of 'allel2.opt.io_vcf_read.FileInputStream' objects": 0.114,
+    "VCFChunkIterator.__next__": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "~:<method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects>",
+     "tottime_s": 181.705
+    },
+    {
+     "func": "~:<method 'ravel' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.597
+    },
+    {
+     "func": "~:<built-in method time.sleep>",
+     "tottime_s": 0.51
+    },
+    {
+     "func": "~:<method 'readline' of 'allel2.opt.io_vcf_read.FileInputStream' objects>",
+     "tottime_s": 0.114
+    },
+    {
+     "func": "blosc.py:_encode_sync",
+     "tottime_s": 0.082
+    },
+    {
+     "func": "~:<method 'astype' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.078
+    },
+    {
+     "func": "vlen_utf8.py:_encode_sync",
+     "tottime_s": 0.074
+    },
+    {
+     "func": "profiling.py:__init__",
+     "tottime_s": 0.06
+    }
+   ]
+  },
+  {
+   "step": "3 read_vcf Ag2 all fields",
+   "wall_s": 124.044,
+   "shares": {
+    "allel2 (python)": 0.0262,
+    "builtins": 0.0042,
+    "cython": 0.9648,
+    "numpy": 0.0002,
+    "other": 0.0046
+   },
+   "cython_kernels_s": {
+    "method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects": 119.556,
+    "method 'readline' of 'allel2.opt.io_vcf_read.FileInputStream' objects": 0.11,
+    "VCFChunkIterator.__next__": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "~:<method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects>",
+     "tottime_s": 119.556
+    },
+    {
+     "func": "vcf_read.py:read_vcf",
+     "tottime_s": 3.254
+    },
+    {
+     "func": "profiling.py:__init__",
+     "tottime_s": 0.565
+    },
+    {
+     "func": "~:<built-in method time.sleep>",
+     "tottime_s": 0.511
+    },
+    {
+     "func": "~:<method 'readline' of 'allel2.opt.io_vcf_read.FileInputStream' objects>",
+     "tottime_s": 0.11
+    },
+    {
+     "func": "~:<method 'astype' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.03
+    },
+    {
+     "func": "~:<built-in method _posixsubprocess.fork_exec>",
+     "tottime_s": 0.004
+    },
+    {
+     "func": "~:<built-in method posix.read>",
+     "tottime_s": 0.001
+    }
+   ]
+  },
+  {
+   "step": "4 read_vcf accessibility",
+   "wall_s": 6.07,
+   "shares": {
+    "allel2 (python)": 0.0014,
+    "builtins": 0.0924,
+    "cython": 0.9038,
+    "numpy": 0.0,
+    "other": 0.0024
+   },
+   "cython_kernels_s": {
+    "method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects": 5.486,
+    "VCFChunkIterator.__next__": 0.0,
+    "method 'readline' of 'allel2.opt.io_vcf_read.FileInputStream' objects": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "~:<method '__next__' of 'allel2.opt.io_vcf_read.VCFChunkIterator' objects>",
+     "tottime_s": 5.486
+    },
+    {
+     "func": "~:<built-in method time.sleep>",
+     "tottime_s": 0.511
+    },
+    {
+     "func": "~:<built-in method _posixsubprocess.fork_exec>",
+     "tottime_s": 0.047
+    },
+    {
+     "func": "subprocess.py:_internal_poll",
+     "tottime_s": 0.013
+    },
+    {
+     "func": "vcf_read.py:_setup_input_stream",
+     "tottime_s": 0.003
+    },
+    {
+     "func": "vcf_read.py:read_vcf",
+     "tottime_s": 0.003
+    },
+    {
+     "func": "~:<built-in method posix.read>",
+     "tottime_s": 0.002
+    },
+    {
+     "func": "vcf_read.py:_read_vcf_headers",
+     "tottime_s": 0.002
+    }
+   ]
+  },
+  {
+   "step": "5a count_alleles all samples",
+   "wall_s": 5.077,
+   "shares": {
+    "allel2 (python)": 0.0,
+    "builtins": 0.0,
+    "cython": 1.0,
+    "numpy": 0.0
+   },
+   "cython_kernels_s": {
+    "genotype_array_count_alleles": 5.077
+   },
+   "top_tottime": [
+    {
+     "func": "profiling.py:cython:genotype_array_count_alleles",
+     "tottime_s": 5.077
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:count_alleles",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:__init__",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:__init__",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:_normalize_subpop_arg",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "util.py:check_integer_dtype",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "abc.py:__init__",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "5b count_alleles_subpops",
+   "wall_s": 0.922,
+   "shares": {
+    "allel2 (python)": 0.0002,
+    "builtins": 0.0001,
+    "cython": 0.9997,
+    "numpy": 0.0001
+   },
+   "cython_kernels_s": {
+    "genotype_array_count_alleles_subpop": 0.921
+   },
+   "top_tottime": [
+    {
+     "func": "profiling.py:cython:genotype_array_count_alleles_subpop",
+     "tottime_s": 0.921
+    },
+    {
+     "func": "ndarray.py:_normalize_subpop_arg",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:count_alleles",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:count_alleles_subpops",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<built-in method numpy.asarray>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:__init__",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "6a to_n_alt (100k sites)",
+   "wall_s": 0.609,
+   "shares": {
+    "allel2 (python)": 0.0515,
+    "builtins": 0.0001,
+    "numpy": 0.9484
+   },
+   "cython_kernels_s": {},
+   "top_tottime": [
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.577
+    },
+    {
+     "func": "ndarray.py:to_n_alt",
+     "tottime_s": 0.031
+    },
+    {
+     "func": "~:<built-in method numpy.empty>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "fromnumeric.py:sum",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "fromnumeric.py:_wrapreduction",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "abc.py:__getattr__",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<built-in method builtins.isinstance>",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "6b locate_unlinked",
+   "wall_s": 33.267,
+   "shares": {
+    "allel2 (python)": 0.0,
+    "builtins": 0.0,
+    "cython": 1.0,
+    "numpy": 0.0
+   },
+   "cython_kernels_s": {
+    "gn_locate_unlinked_int8": 33.266,
+    "allel2.opt.stats.gn_locate_unlinked_int8": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "stats.pyx:gn_locate_unlinked_int8",
+     "tottime_s": 33.266
+    },
+    {
+     "func": "~:<allel2.opt.stats.gn_locate_unlinked_int8>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ld.py:locate_unlinked",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<built-in method numpy.asarray>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "compat.py:memoryview_safe",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "profiling.py:cython:gn_locate_unlinked_int8",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "util.py:get_blen_array",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "6c pca",
+   "wall_s": 5.415,
+   "shares": {
+    "allel2 (python)": 0.0178,
+    "builtins": 0.9531,
+    "numpy": 0.0291,
+    "other": 0.0,
+    "scipy/sklearn": 0.0001
+   },
+   "cython_kernels_s": {},
+   "top_tottime": [
+    {
+     "func": "~:<built-in method scipy.linalg._batched_linalg._svd>",
+     "tottime_s": 5.161
+    },
+    {
+     "func": "preprocessing.py:transform",
+     "tottime_s": 0.096
+    },
+    {
+     "func": "_function_base_impl.py:asarray_chkfinite",
+     "tottime_s": 0.065
+    },
+    {
+     "func": "~:<method 'astype' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.048
+    },
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.038
+    },
+    {
+     "func": "~:<built-in method numpy.array>",
+     "tottime_s": 0.006
+    },
+    {
+     "func": "~:<built-in method _abc._abc_subclasscheck>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "decomposition.py:_fit",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "6 PCA workflow total",
+   "wall_s": 39.339,
+   "shares": {
+    "allel2 (python)": 0.0034,
+    "builtins": 0.1342,
+    "cython": 0.844,
+    "numpy": 0.0183,
+    "other": 0.0001,
+    "scipy/sklearn": 0.0
+   },
+   "cython_kernels_s": {
+    "gn_locate_unlinked_int8": 33.201,
+    "allel2.opt.stats.gn_locate_unlinked_int8": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "stats.pyx:gn_locate_unlinked_int8",
+     "tottime_s": 33.2
+    },
+    {
+     "func": "~:<built-in method scipy.linalg._batched_linalg._svd>",
+     "tottime_s": 5.278
+    },
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.588
+    },
+    {
+     "func": "preprocessing.py:transform",
+     "tottime_s": 0.097
+    },
+    {
+     "func": "_function_base_impl.py:asarray_chkfinite",
+     "tottime_s": 0.065
+    },
+    {
+     "func": "~:<method 'astype' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.032
+    },
+    {
+     "func": "ndarray.py:to_n_alt",
+     "tottime_s": 0.03
+    },
+    {
+     "func": "~:<method 'take' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.028
+    }
+   ]
+  },
+  {
+   "step": "7a windowed_diversity",
+   "wall_s": 0.021,
+   "shares": {
+    "allel2 (python)": 0.3721,
+    "builtins": 0.0107,
+    "numpy": 0.6163,
+    "other": 0.0009
+   },
+   "cython_kernels_s": {},
+   "top_tottime": [
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.012
+    },
+    {
+     "func": "diversity.py:mean_pairwise_difference",
+     "tottime_s": 0.005
+    },
+    {
+     "func": "util.py:mask_inaccessible",
+     "tottime_s": 0.001
+    },
+    {
+     "func": "abc.py:__sub__",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'searchsorted' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "window.py:windowed_statistic",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "window.py:per_base",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<built-in method numpy._core._multiarray_umath.count_nonzero>",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "7b windowed_watterson_theta",
+   "wall_s": 0.014,
+   "shares": {
+    "allel2 (python)": 0.1689,
+    "builtins": 0.01,
+    "numpy": 0.8206,
+    "other": 0.0005
+   },
+   "cython_kernels_s": {},
+   "top_tottime": [
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.011
+    },
+    {
+     "func": "util.py:mask_inaccessible",
+     "tottime_s": 0.001
+    },
+    {
+     "func": "window.py:windowed_statistic",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'searchsorted' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<built-in method numpy._core._multiarray_umath.count_nonzero>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "window.py:per_base",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:allelism",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "abc.py:__sub__",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "7c windowed_tajima_d",
+   "wall_s": 0.029,
+   "shares": {
+    "allel2 (python)": 0.2081,
+    "builtins": 0.0064,
+    "numpy": 0.785,
+    "other": 0.0005
+   },
+   "cython_kernels_s": {},
+   "top_tottime": [
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.022
+    },
+    {
+     "func": "diversity.py:mean_pairwise_difference",
+     "tottime_s": 0.005
+    },
+    {
+     "func": "window.py:windowed_statistic",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'searchsorted' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "diversity.py:statistic",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "ndarray.py:allelism",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "fromnumeric.py:_wrapreduction",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "fromnumeric.py:sum",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "7d windowed_hudson_fst",
+   "wall_s": 0.047,
+   "shares": {
+    "allel2 (python)": 0.3126,
+    "builtins": 0.0061,
+    "numpy": 0.6808,
+    "other": 0.0005
+   },
+   "cython_kernels_s": {},
+   "top_tottime": [
+    {
+     "func": "~:<method 'reduce' of 'numpy.ufunc' objects>",
+     "tottime_s": 0.028
+    },
+    {
+     "func": "diversity.py:mean_pairwise_difference",
+     "tottime_s": 0.01
+    },
+    {
+     "func": "diversity.py:mean_pairwise_difference_between",
+     "tottime_s": 0.003
+    },
+    {
+     "func": "_nanfunctions_impl.py:_replace_nan",
+     "tottime_s": 0.002
+    },
+    {
+     "func": "fst.py:hudson_fst",
+     "tottime_s": 0.001
+    },
+    {
+     "func": "~:<built-in method numpy.array>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'searchsorted' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "window.py:windowed_statistic",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "8a ihs (1 thread)",
+   "wall_s": 14.272,
+   "shares": {
+    "allel2 (python)": 0.0003,
+    "builtins": 0.0,
+    "cython": 0.9997,
+    "numpy": 0.0
+   },
+   "cython_kernels_s": {
+    "ihh01_scan[int8_t[:, :]]": 14.268,
+    "ihh01_scan": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "stats.pyx:ihh01_scan[int8_t[:, :]]",
+     "tottime_s": 14.268
+    },
+    {
+     "func": "selection.py:ihs",
+     "tottime_s": 0.003
+    },
+    {
+     "func": "selection.py:compute_ihh_gaps",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'astype' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "_function_base_impl.py:diff",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "profiling.py:cython:ihh01_scan",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "numeric.py:ones",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "8b nsl (1 thread)",
+   "wall_s": 11.045,
+   "shares": {
+    "allel2 (python)": 0.0003,
+    "builtins": 0.0,
+    "cython": 0.9997,
+    "numpy": 0.0
+   },
+   "cython_kernels_s": {
+    "nsl01_scan[int8_t[:, :]]": 11.041,
+    "nsl01_scan": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "stats.pyx:nsl01_scan[int8_t[:, :]]",
+     "tottime_s": 11.041
+    },
+    {
+     "func": "selection.py:nsl",
+     "tottime_s": 0.003
+    },
+    {
+     "func": "profiling.py:cython:nsl01_scan",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<built-in method numpy.asarray>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "abc.py:__array__",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "util.py:asarray_ndim",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "abc.py:__getattr__",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "8c xpehh (1 thread)",
+   "wall_s": 56.807,
+   "shares": {
+    "allel2 (python)": 0.0001,
+    "builtins": 0.0,
+    "cython": 0.9999,
+    "numpy": 0.0
+   },
+   "cython_kernels_s": {
+    "ihh_scan[int8_t[:, :]]": 56.799,
+    "ihh_scan": 0.0
+   },
+   "top_tottime": [
+    {
+     "func": "stats.pyx:ihh_scan[int8_t[:, :]]",
+     "tottime_s": 56.799
+    },
+    {
+     "func": "selection.py:xpehh",
+     "tottime_s": 0.007
+    },
+    {
+     "func": "selection.py:compute_ihh_gaps",
+     "tottime_s": 0.001
+    },
+    {
+     "func": "_function_base_impl.py:diff",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'astype' of 'numpy.ndarray' objects>",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "numeric.py:ones",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "profiling.py:cython:ihh_scan",
+     "tottime_s": 0.0
+    },
+    {
+     "func": "~:<method 'disable' of '_lsprof.Profiler' objects>",
+     "tottime_s": 0.0
+    }
+   ]
+  },
+  {
+   "step": "8a ihs (threads)",
+   "wall_s": 7.337
+  },
+  {
+   "step": "8b nsl (threads)",
+   "wall_s": 5.677
+  },
+  {
+   "step": "8c xpehh (threads)",
+   "wall_s": 17.689
+  }
+ ]
+}
