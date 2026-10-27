@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
+import functools
 import operator
+import sys
+import warnings
 from functools import reduce
 
 
@@ -10,6 +13,25 @@ from allel2.util import get_blen_array  # noqa: F401
 
 
 storage_registry = dict()
+
+
+def _warn_deprecated(name, instead):
+    """Warn that `name` will be removed, unless chunked is calling itself, so that
+    users see one warning per call of theirs, attributed to their own code."""
+    caller = sys._getframe(2).f_globals.get('__name__', '')
+    if caller.startswith(('allel2.chunked', 'allel2.model.chunked')):
+        return
+    warnings.warn('allel2.chunked is deprecated and will be removed in scikit-allel2 3.0: '
+                  'use %s instead of %s (see "Migrating from chunked to Dask" in the '
+                  'documentation)' % (instead, name), DeprecationWarning, stacklevel=3)
+
+
+def _deprecated(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        _warn_deprecated('allel2.chunked.' + f.__name__, 'dask.array')
+        return f(*args, **kwargs)
+    return wrapper
 
 
 def get_storage(storage=None):

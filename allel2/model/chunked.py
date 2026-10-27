@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""This module is maintained for backwards-compatibility, however it is recommended
-to migrate to use the equivalent classes from the :mod:`allel2.model.dask` module
-where possible.
+"""This module is deprecated and will be removed in scikit-allel2 3.0: use the
+equivalent classes from the :mod:`allel2.model.dask` module instead, see
+:doc:`/migrating_chunked`.
 
 This module provides alternative implementations of array and table
 classes defined in the :mod:`allel2.model.ndarray` module, using
@@ -23,6 +23,7 @@ import numpy as np
 from allel2.compat import copy_method_doc
 from allel2 import chunked as _chunked
 from allel2.chunked import ChunkedArrayWrapper, ChunkedTableWrapper
+from allel2.chunked.util import _warn_deprecated
 from allel2.io.vcf_write import write_vcf_header, write_vcf_data, normalize_callset
 from allel2.util import check_ndim, check_integer_dtype
 from allel2.abc import DisplayAs2D
@@ -44,6 +45,10 @@ from .generic import (
 __all__ = ['GenotypeChunkedArray', 'HaplotypeChunkedArray',
            'AlleleCountsChunkedArray', 'VariantChunkedTable',
            'AlleleCountsChunkedTable', 'GenotypeAlleleCountsChunkedArray']
+
+
+# chunked tables have no Dask equivalent
+_TABLE_INSTEAD = 'VariantTable (in memory) or dask.dataframe'
 
 
 class GenotypeChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
@@ -106,6 +111,7 @@ class GenotypeChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
     """  # flake8: noqa
 
     def __init__(self, data):
+        _warn_deprecated('GenotypeChunkedArray', 'GenotypeDaskArray')
         super(GenotypeChunkedArray, self).__init__(data)
         check_ndim(self.values, 3)
         check_integer_dtype(self.values)
@@ -351,6 +357,7 @@ class HaplotypeChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
     """
 
     def __init__(self, data):
+        _warn_deprecated('HaplotypeChunkedArray', 'HaplotypeDaskArray')
         super(HaplotypeChunkedArray, self).__init__(data)
         check_ndim(self.values, 2)
         check_integer_dtype(self.values)
@@ -490,6 +497,7 @@ class AlleleCountsChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
     """
 
     def __init__(self, data):
+        _warn_deprecated('AlleleCountsChunkedArray', 'AlleleCountsDaskArray')
         super(AlleleCountsChunkedArray, self).__init__(data)
         check_ndim(self.values, 2)
         check_integer_dtype(self.values)
@@ -641,6 +649,7 @@ copy_method_doc(AlleleCountsChunkedArray.is_biallelic_01,
 class GenotypeAlleleCountsChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
 
     def __init__(self, data):
+        _warn_deprecated('GenotypeAlleleCountsChunkedArray', 'GenotypeAlleleCountsDaskArray')
         super(GenotypeAlleleCountsChunkedArray, self).__init__(data)
         check_ndim(self.values, 3)
         check_integer_dtype(self.values)
@@ -798,6 +807,7 @@ class VariantChunkedTable(ChunkedTableWrapper):
     array_cls = VariantTable
 
     def __init__(self, data, names=None, index=None):
+        _warn_deprecated('VariantChunkedTable', _TABLE_INSTEAD)
         super(VariantChunkedTable, self).__init__(data, names=names)
         self.index = None
         if index is not None:
@@ -831,6 +841,10 @@ class VariantChunkedTable(ChunkedTableWrapper):
 
 
 class AlleleCountsChunkedTable(ChunkedTableWrapper):
+
+    def __init__(self, data, names=None):
+        _warn_deprecated('AlleleCountsChunkedTable', _TABLE_INSTEAD)
+        super(AlleleCountsChunkedTable, self).__init__(data, names=names)
 
     def __getitem__(self, item):
         out = super(AlleleCountsChunkedTable, self).__getitem__(item)

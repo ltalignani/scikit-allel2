@@ -1,6 +1,9 @@
 Chunked storage utilities
 =========================
 
+.. deprecated:: 2.0.0
+    This module will be removed in scikit-allel2 3.0. See :doc:`/migrating_chunked`.
+
 .. automodule:: allel2.chunked
 
 Storage

@@ -98,6 +98,7 @@ Contents
     stats
     io
     chunked
+    migrating_chunked
     util
     release
 
