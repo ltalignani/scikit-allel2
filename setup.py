@@ -2,6 +2,7 @@
 from setuptools import setup, Extension
 import os
 import numpy # Import numpy
+from setuptools_rust import Binding, RustExtension
 
 # find all the cython files and define extensions
 extensions = []
@@ -23,6 +24,12 @@ def setup_package():
         # note: all metadata is now in pyproject.toml
         # we need to retain this file for the cython extensions
         ext_modules=extensions,
+        # PROTOTYPE (throwaway): Rust GT-only VCF parser, see rust/prototype_vcf_gt
+        rust_extensions=[RustExtension('allel2._prototype_rust_vcf',
+                                       path='rust/prototype_vcf_gt/Cargo.toml',
+                                       binding=Binding.PyO3,
+                                       # editable installs default to debug builds
+                                       debug=False)],
         package_data={"allel2.test": ["data/*"]},
         zip_safe=False,
     )

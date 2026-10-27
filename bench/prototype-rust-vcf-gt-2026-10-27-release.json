@@ -1,0 +1,35 @@
+{
+ "meta": {
+  "python": "3.14.7",
+  "machine": "arm64",
+  "cpu_count": 10,
+  "numpy": "2.5.4",
+  "allel2": "1.3.14.dev5+g288850b7b.d20261027"
+ },
+ "results": [
+  {
+   "dataset": "chr22 1000 Genomes (whole file)",
+   "n_variants": 1103547,
+   "n_samples": 2504,
+   "cython_s": 174.23,
+   "rust_1_thread_s": 27.36,
+   "rust_1_thread_speedup": 6.37,
+   "rust_1_thread_identical": true,
+   "rust_all_threads_s": 10.8,
+   "rust_all_threads_speedup": 16.13,
+   "rust_all_threads_identical": true
+  },
+  {
+   "dataset": "Ag2 3R:10-15 Mb (tabix region)",
+   "n_variants": 1047306,
+   "n_samples": 1142,
+   "cython_s": 183.43,
+   "rust_1_thread_s": 88.84,
+   "rust_1_thread_speedup": 2.06,
+   "rust_1_thread_identical": true,
+   "rust_all_threads_s": 66.49,
+   "rust_all_threads_speedup": 2.76,
+   "rust_all_threads_identical": true
+  }
+ ]
+}
