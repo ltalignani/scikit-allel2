@@ -3,6 +3,8 @@ import operator
 from functools import reduce
 
 
+import numbers
+
 import numpy as np
 import zarr
 from zarr.storage import MemoryStore, LocalStore
@@ -21,11 +23,33 @@ def default_chunks(data, expectedlen):
 
 
 def _zarr_compatible(a):
-    # zarr 3 refuses object arrays; strings (e.g., from h5py) become StringDType
+    # zarr 3 cannot store object arrays, and reads strings back as StringDType
+    # anyway: strings (e.g., read with h5py) are stored as StringDType; other
+    # object data is left for zarr to refuse rather than silently converted
+    if getattr(a, 'dtype', None) != object:
+        return a
     a = np.asarray(a)
-    if a.dtype == object:
-        a = a.astype(np.dtypes.StringDType())
+    if all(isinstance(x, (str, bytes)) for x in a.flat):
+        # decode bytes explicitly: numpy 2.0 casts them to their repr
+        a = np.array([x.decode() if isinstance(x, bytes) else x for x in a.flat],
+                     dtype=np.dtypes.StringDType()).reshape(a.shape)
     return a
+
+
+def _column_chunks(chunks, shape):
+    """Chunk shape for an array of `shape`: an int is a number of rows, and a
+    tuple shorter than `shape` is completed with whole dimensions; None means
+    chunks chosen by zarr."""
+    if chunks is None or chunks is True:
+        return None
+    if isinstance(chunks, str):
+        # e.g. 'auto', left to zarr
+        return chunks
+    if len(shape) == 0:
+        return ()
+    if isinstance(chunks, numbers.Integral):
+        chunks = (chunks,)
+    return tuple(chunks[:len(shape)]) + tuple(shape[len(chunks):])
 
 
 class ZarrStorage(object):
@@ -53,7 +77,9 @@ class ZarrStorage(object):
         kwargs.setdefault('chunks', default_chunks(data, expectedlen))
 
         # create
-        z = zarr.array(_zarr_compatible(data), **kwargs)
+        data = _zarr_compatible(data)
+        kwargs['chunks'] = _column_chunks(kwargs['chunks'], np.shape(data))
+        z = zarr.array(data, **kwargs)
 
         return z
 
@@ -67,17 +93,13 @@ class ZarrStorage(object):
 
         # create columns
         for n, c in zip(names, columns):
-            if chunks is None:
-                chunks = default_chunks(c, expectedlen)
             c = _zarr_compatible(c)
-            if chunks is None:
-                column_chunks = 'auto'
-            elif isinstance(chunks, int):
-                # rows per chunk; columns may have more dimensions than rows
-                column_chunks = (chunks,) + c.shape[1:]
-            else:
-                column_chunks = chunks
-            g.create_array(name=n, data=c, chunks=column_chunks)
+            column_chunks = chunks
+            if column_chunks is None:
+                column_chunks = default_chunks(c, expectedlen)
+            column_chunks = _column_chunks(column_chunks, c.shape)
+            g.create_array(name=n, data=c,
+                           chunks='auto' if column_chunks is None else column_chunks)
 
         # create table
         ztbl = ZarrTable(g, names=names)

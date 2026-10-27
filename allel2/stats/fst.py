@@ -6,13 +6,13 @@ import itertools
 import numpy as np
 
 
-from allel2.util import asarray_ndim, check_dim0_aligned, ensure_dim1_aligned
+from allel2.util import asarray_ndim, check_dim0_aligned, ensure_dim1_aligned, \
+    get_blen_array
 from allel2.model.ndarray import GenotypeArray
 from allel2.stats.window import windowed_statistic, moving_statistic
 from allel2.stats.diversity import mean_pairwise_difference, \
     mean_pairwise_difference_between
 from allel2.stats.misc import jackknife
-from allel2.util import get_blen_array
 
 
 logger = logging.getLogger(__name__)

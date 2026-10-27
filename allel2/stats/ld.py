@@ -3,8 +3,7 @@ import numpy as np
 
 
 from allel2.stats.window import windowed_statistic
-from allel2.util import asarray_ndim, ensure_square
-from allel2.util import get_blen_array
+from allel2.util import asarray_ndim, ensure_square, get_blen_array
 from allel2.compat import memoryview_safe
 from allel2.opt.stats import gn_pairwise_corrcoef_int8, gn_pairwise2_corrcoef_int8, \
     gn_locate_unlinked_int8

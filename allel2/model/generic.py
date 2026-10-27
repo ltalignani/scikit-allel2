@@ -9,8 +9,10 @@ from allel2.util import contains_newaxis, check_ndim
 
 def _index_values(values, item):
     out = values[item]
-    # zarr 3 returns a 0-d array for a single item, NumPy returns a scalar
-    if isinstance(out, np.ndarray) and out.ndim == 0:
+    # zarr 3 returns a 0-d array for a single item where NumPy returns a scalar;
+    # NumPy results are left as they are
+    if not isinstance(values, np.ndarray) and isinstance(out, np.ndarray) \
+            and out.ndim == 0:
         out = out[()]
     return out
 
