@@ -11,7 +11,7 @@ from allel2.abc import ArrayWrapper, DisplayAsTable
 from allel2.model.ndarray import subset as _numpy_subset, NumpyRecArrayWrapper
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def store(data, arr, start=0, stop=None, offset=0, blen=None):
     """Copy `data` block-wise into `arr`."""
 
@@ -33,7 +33,7 @@ def store(data, arr, start=0, stop=None, offset=0, blen=None):
         offset += bl
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def copy(data, start=0, stop=None, blen=None, storage=None, create='array',
          **kwargs):
     """Copy `data` block-wise into a new array."""
@@ -62,7 +62,7 @@ def copy(data, start=0, stop=None, blen=None, storage=None, create='array',
     return out
 
 
-@_util._deprecated
+@_util._deprecated(_util._TABLE_REPLACEMENT)
 def copy_table(tbl, start=0, stop=None, blen=None, storage=None,
                create='table', **kwargs):
     """Copy `tbl` block-wise into a new table."""
@@ -93,7 +93,7 @@ def copy_table(tbl, start=0, stop=None, blen=None, storage=None,
     return out
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def map_blocks(data, f, blen=None, storage=None, create='array', **kwargs):
     """Apply function `f` block-wise over `data`."""
 
@@ -140,7 +140,7 @@ def map_blocks(data, f, blen=None, storage=None, create='array', **kwargs):
     return out
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def reduce_axis(data, reducer, block_reducer, mapper=None, axis=None,
                 blen=None, storage=None, create='array', **kwargs):
     """Apply an operation to `data` that reduces over one or more axes."""
@@ -200,7 +200,7 @@ def reduce_axis(data, reducer, block_reducer, mapper=None, axis=None,
         return out
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def amax(data, axis=None, mapper=None, blen=None, storage=None,
          create='array', **kwargs):
     """Compute the maximum value."""
@@ -209,7 +209,7 @@ def amax(data, axis=None, mapper=None, blen=None, storage=None,
                        blen=blen, storage=storage, create=create, **kwargs)
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def amin(data, axis=None, mapper=None, blen=None, storage=None,
          create='array', **kwargs):
     """Compute the minimum value."""
@@ -219,7 +219,7 @@ def amin(data, axis=None, mapper=None, blen=None, storage=None,
 
 
 # noinspection PyShadowingBuiltins
-@_util._deprecated
+@_util._deprecated('dask.array')
 def asum(data, axis=None, mapper=None, blen=None, storage=None,
          create='array', **kwargs):
     """Compute the sum."""
@@ -228,7 +228,7 @@ def asum(data, axis=None, mapper=None, blen=None, storage=None,
                        blen=blen, storage=storage, create=create, **kwargs)
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def count_nonzero(data, mapper=None, blen=None, storage=None,
                   create='array', **kwargs):
     """Count the number of non-zero elements."""
@@ -237,7 +237,7 @@ def count_nonzero(data, mapper=None, blen=None, storage=None,
                        blen=blen, storage=storage, create=create, **kwargs)
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def compress(condition, data, axis=0, out=None, blen=None, storage=None, create='array',
              **kwargs):
     """Return selected slices of an array along given axis."""
@@ -295,7 +295,7 @@ def compress(condition, data, axis=0, out=None, blen=None, storage=None, create=
         raise NotImplementedError('axis not supported: %s' % axis)
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def take(data, indices, axis=0, out=None, mode='raise', blen=None, storage=None,
          create='array', **kwargs):
     """Take elements from an array along an axis."""
@@ -348,7 +348,7 @@ def take(data, indices, axis=0, out=None, mode='raise', blen=None, storage=None,
         raise NotImplementedError('axis not supported: %s' % axis)
 
 
-@_util._deprecated
+@_util._deprecated(_util._TABLE_REPLACEMENT)
 def compress_table(condition, tbl, axis=None, out=None, blen=None, storage=None,
                    create='table', **kwargs):
     """Return selected rows of a table."""
@@ -383,7 +383,7 @@ def compress_table(condition, tbl, axis=None, out=None, blen=None, storage=None,
     return out
 
 
-@_util._deprecated
+@_util._deprecated(_util._TABLE_REPLACEMENT)
 def take_table(tbl, indices, axis=None, out=None, mode='raise', blen=None, storage=None,
                create='table', **kwargs):
     """Return selected rows of a table."""
@@ -413,7 +413,7 @@ def take_table(tbl, indices, axis=None, out=None, mode='raise', blen=None, stora
                           create=create, **kwargs)
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def subset(data, sel0=None, sel1=None, blen=None, storage=None, create='array',
            **kwargs):
     """Return selected rows and columns of an array."""
@@ -474,7 +474,7 @@ def subset(data, sel0=None, sel1=None, blen=None, storage=None, create='array',
     return out
 
 
-@_util._deprecated
+@_util._deprecated(_util._TABLE_REPLACEMENT)
 def concatenate_table(tup, blen=None, storage=None, create='table', **kwargs):
     """Stack tables in sequence vertically (row-wise)."""
 
@@ -505,7 +505,7 @@ def concatenate_table(tup, blen=None, storage=None, create='table', **kwargs):
     return out
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def concatenate(tup, axis=0, blen=None, storage=None, create='array', **kwargs):
     """Concatenate arrays."""
 
@@ -550,7 +550,7 @@ def concatenate(tup, axis=0, blen=None, storage=None, create='array', **kwargs):
     return out
 
 
-@_util._deprecated
+@_util._deprecated('dask.array')
 def binary_op(data, op, other, blen=None, storage=None, create='array',
               **kwargs):
     """Compute a binary operation block-wise over `data`."""
@@ -591,7 +591,7 @@ def _get_expression_variables(expression, vm):
 
 
 # based on bcolz.chunked_eval
-@_util._deprecated
+@_util._deprecated(_util._TABLE_REPLACEMENT)
 def eval_table(tbl, expression, vm='python', blen=None, storage=None,
                create='array', vm_kwargs=None, **kwargs):
     """Evaluate `expression` against columns of a table."""

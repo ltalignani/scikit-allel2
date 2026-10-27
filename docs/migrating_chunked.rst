@@ -4,6 +4,9 @@ Migrating from chunked to Dask
 The :mod:`allel2.chunked` module and the chunked array classes are deprecated
 since scikit-allel2 2.0.0 and will be removed in scikit-allel2 3.0. Using them
 emits a ``DeprecationWarning`` naming the class or function to use instead.
+Python only displays such warnings by default for code run in ``__main__``
+(a script or a notebook); to see them from your own modules, run Python with
+``-W default::DeprecationWarning``.
 The Dask classes in :mod:`allel2.model.dask` offer the same methods, and work
 on the same zarr or HDF5 data.
 
@@ -19,12 +22,13 @@ Deprecated                             Use instead
 ``GenotypeAlleleCountsChunkedArray``   :class:`allel2.GenotypeAlleleCountsDaskArray`
 ``VariantChunkedTable``                :class:`allel2.VariantTable` (in memory) or
                                        ``dask.dataframe``
-``AlleleCountsChunkedTable``           :class:`allel2.VariantTable` (in memory) or
-                                       ``dask.dataframe``; a dict of
-                                       :class:`allel2.AlleleCountsDaskArray`, as
-                                       returned by ``count_alleles_subpops``
+``AlleleCountsChunkedTable``           a dict of :class:`allel2.AlleleCountsDaskArray`,
+                                       as returned by ``count_alleles_subpops``, or
+                                       ``dask.dataframe``
 Functions of :mod:`allel2.chunked`     the equivalent ``dask.array`` functions
 (``copy``, ``map_blocks``, ...)
+Table functions (``copy_table``,       :class:`allel2.VariantTable` (in memory) or
+``compress_table``, ...)               ``dask.dataframe``
 =====================================  ==============================================
 
 Wrap the same data::

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import unittest
+import warnings
 import numpy as np
 import h5py
 import zarr
@@ -677,7 +678,7 @@ def test_numpy_indexing_unchanged():
     (VariantChunkedTable, np.array(variant_table_data, dtype=variant_table_dtype),
      'VariantTable'),
     (AlleleCountsChunkedTable, {'pop1': np.array(allele_counts_data, dtype='i4')},
-     'VariantTable'),
+     'AlleleCountsDaskArray'),
 ])
 def test_chunked_classes_deprecated(cls, data, equivalent):
     with pytest.warns(DeprecationWarning, match='scikit-allel2 3.0') as record:
@@ -696,10 +697,33 @@ def test_chunked_functions_deprecated():
 
 
 def test_chunked_warning_points_at_caller():
-    # the warning is attributed to user code, not to allel2 internals
-    with pytest.warns(DeprecationWarning) as record:
-        GenotypeChunkedArray(chunked.copy(np.array(diploid_genotype_data, dtype='i1')))
-    assert all(w.filename == __file__ for w in record)
+    # one warning per construction or function call in user code, attributed to it
+    g = np.array(diploid_genotype_data, dtype='i1')
+    for call in [lambda: chunked.copy(g), lambda: GenotypeChunkedArray(g)]:
+        with pytest.warns(DeprecationWarning) as record:
+            call()
+        assert 1 == len(record)
+        assert __file__ == record[0].filename
+
+
+def test_chunked_methods_silent():
+    # the user was warned when constructing; allel2 internals never warn again
+    with pytest.warns(DeprecationWarning):
+        gc = GenotypeChunkedArray(np.array(diploid_genotype_data, dtype='i1'))
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        gc.compress([True, False, True, False, True], axis=0)
+        gc.take([0, 1], axis=0)
+        gc.subset([0, 1], [0, 1])
+        gc.concatenate([gc])
+        gc.count_alleles()
+        gc.to_haplotypes()
+
+
+def test_chunked_table_functions_point_to_tables():
+    with pytest.warns(DeprecationWarning, match='dask.dataframe') as record:
+        chunked.copy_table({'a': np.arange(3)})
+    assert 'dask.array' not in str(record[0].message)
 
 
 def test_import_allel2_is_silent():

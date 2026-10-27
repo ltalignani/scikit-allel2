@@ -23,7 +23,7 @@ import numpy as np
 from allel2.compat import copy_method_doc
 from allel2 import chunked as _chunked
 from allel2.chunked import ChunkedArrayWrapper, ChunkedTableWrapper
-from allel2.chunked.util import _warn_deprecated
+from allel2.chunked.util import _warn_deprecated, _TABLE_REPLACEMENT
 from allel2.io.vcf_write import write_vcf_header, write_vcf_data, normalize_callset
 from allel2.util import check_ndim, check_integer_dtype
 from allel2.abc import DisplayAs2D
@@ -45,10 +45,6 @@ from .generic import (
 __all__ = ['GenotypeChunkedArray', 'HaplotypeChunkedArray',
            'AlleleCountsChunkedArray', 'VariantChunkedTable',
            'AlleleCountsChunkedTable', 'GenotypeAlleleCountsChunkedArray']
-
-
-# chunked tables have no Dask equivalent
-_TABLE_INSTEAD = 'VariantTable (in memory) or dask.dataframe'
 
 
 class GenotypeChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
@@ -807,7 +803,7 @@ class VariantChunkedTable(ChunkedTableWrapper):
     array_cls = VariantTable
 
     def __init__(self, data, names=None, index=None):
-        _warn_deprecated('VariantChunkedTable', _TABLE_INSTEAD)
+        _warn_deprecated('VariantChunkedTable', _TABLE_REPLACEMENT)
         super(VariantChunkedTable, self).__init__(data, names=names)
         self.index = None
         if index is not None:
@@ -843,7 +839,9 @@ class VariantChunkedTable(ChunkedTableWrapper):
 class AlleleCountsChunkedTable(ChunkedTableWrapper):
 
     def __init__(self, data, names=None):
-        _warn_deprecated('AlleleCountsChunkedTable', _TABLE_INSTEAD)
+        _warn_deprecated('AlleleCountsChunkedTable',
+                         'a dict of AlleleCountsDaskArray, as returned by '
+                         'count_alleles_subpops, or dask.dataframe')
         super(AlleleCountsChunkedTable, self).__init__(data, names=names)
 
     def __getitem__(self, item):
