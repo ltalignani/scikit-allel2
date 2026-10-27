@@ -2482,11 +2482,50 @@ def test_vcf_to_zarr_format_compressor():
 def test_vcf_to_zarr_format_invalid():
     vcf_path = fixture_path('sample.vcf')
     zarr_path = os.path.join(tempdir, 'format.zarr')
-    with pytest.raises(ValueError, match='zarr_format must be 2 or 3'):
-        vcf_to_zarr(vcf_path, zarr_path, zarr_format=4)
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+    for zarr_format in 4, 2.0, '2':
+        with pytest.raises(ValueError, match='zarr_format must be 2 or 3'):
+            vcf_to_zarr(vcf_path, zarr_path, zarr_format=zarr_format)
     with pytest.raises(ValueError, match='cannot be used with zarr format 2'):
-        vcf_to_zarr(vcf_path, zarr_path, zarr_format=2, overwrite=True,
+        vcf_to_zarr(vcf_path, zarr_path, zarr_format=2,
                     compressor=zarr.codecs.ZstdCodec(level=2))
+    # fail before creating anything
+    assert not os.path.exists(zarr_path)
+
+
+def test_vcf_to_zarr_format_mismatch():
+    # writing into an existing store of the other format would mix formats
+    vcf_path = fixture_path('sample.vcf')
+    zarr_path = os.path.join(tempdir, 'mismatch.zarr')
+    for existing, requested in (3, 2), (2, 3):
+        if os.path.exists(zarr_path):
+            shutil.rmtree(zarr_path)
+        vcf_to_zarr(vcf_path, zarr_path, fields='*', zarr_format=existing)
+        with pytest.raises(ValueError, match='existing zarr format %s' % existing):
+            vcf_to_zarr(vcf_path, zarr_path, fields='*', zarr_format=requested,
+                        overwrite=True)
+        # the existing store is left untouched
+        callset = zarr.open_group(zarr_path, mode='r')
+        assert existing == callset.metadata.zarr_format
+        assert 3 == callset['samples'].shape[0]
+
+
+def test_vcf_to_zarr_string_data_types():
+    vcf_path = fixture_path('sample.vcf')
+    zarr_path = os.path.join(tempdir, 'strings.zarr')
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+    vcf_to_zarr(vcf_path, zarr_path, fields=['CHROM', 'ALT', 'samples'])
+    callset = zarr.open_group(zarr_path, mode='r')
+    for key in 'variants/CHROM', 'variants/ALT', 'samples':
+        # the specified zarr v3 variable-length string data type
+        assert 'string' == callset[key].metadata.data_type.to_json(zarr_format=3)
+    # explicit fixed-width bytes are written as they are, with zarr's warning
+    shutil.rmtree(zarr_path)
+    with pytest.warns(FutureWarning, match='does not have a Zarr V3 specification'):
+        vcf_to_zarr(vcf_path, zarr_path, fields=['CHROM'], types={'CHROM': 'S2'})
+    assert np.dtype('S2') == zarr.open_group(zarr_path, mode='r')['variants/CHROM'].dtype
 
 
 def _vcf_to_zarr_compressors(**kwargs):
@@ -2537,8 +2576,8 @@ def test_vcf_to_zarr_compressor_untranslatable():
         shutil.rmtree(zarr_path)
     with pytest.raises(ValueError, match='cannot be used with zarr format 3'):
         vcf_to_zarr(vcf_path, zarr_path, fields='*', compressor=LZMA())
-    # fail before writing any array, including samples
-    assert [] == list(zarr.open_group(zarr_path, mode='r').array_keys())
+    # fail before creating anything
+    assert not os.path.exists(zarr_path)
 
 
 def test_vcf_to_zarr_default_compressor_no_deprecation_warning():
@@ -2576,12 +2615,14 @@ def test_read_legacy_scikit_allel_zarr():
     #   allel.vcf_to_zarr('sample.vcf', out, fields='*', alt_number=2, chunk_length=4)
     store = zarr.storage.ZipStore(fixture_path('sample.scikit-allel-1.3.13.zarr.zip'),
                                   mode='r')
-    actual = zarr.open_group(store, mode='r')
-    assert 2 == actual.metadata.zarr_format
-    expected = read_vcf(fixture_path('sample.vcf'), fields='*', alt_number=2)
-    for key in expected.keys():
-        compare_zarr_arrays(expected[key], actual[key][:])
-    store.close()
+    try:
+        actual = zarr.open_group(store, mode='r')
+        assert 2 == actual.metadata.zarr_format
+        expected = read_vcf(fixture_path('sample.vcf'), fields='*', alt_number=2)
+        for key in expected.keys():
+            compare_zarr_arrays(expected[key], actual[key][:])
+    finally:
+        store.close()
 
 
 def test_vcf_to_zarr_empty():

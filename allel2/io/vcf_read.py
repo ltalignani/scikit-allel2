@@ -845,6 +845,20 @@ def _zarr_compressors(compressor, zarr_format):
         'zarr.codecs, numcodecs.Blosc or numcodecs.Zstd' % (compressor, zarr_format))
 
 
+def _zarr_check_existing_format(output, zarr_format):
+    """Refuse to write into an existing store of another zarr format, which zarr
+    would otherwise turn into a store mixing both formats."""
+    import zarr
+    try:
+        existing = zarr.open_group(output, mode='r').metadata.zarr_format
+    except (FileNotFoundError, zarr.errors.GroupNotFoundError):
+        return
+    if existing != zarr_format:
+        raise ValueError(
+            'cannot write zarr format %s into %r, which has existing zarr format %s'
+            % (zarr_format, output, existing))
+
+
 def _zarr_setup_datasets(chunk, root, chunk_length, chunk_width, compressors, overwrite,
                          headers):
 
@@ -922,6 +936,10 @@ def vcf_to_zarr(input, output,
         Now will not create any output files if no variants are found in the VCF file or
         matching the requested region.
 
+    .. versionchanged:: 2.0.0
+        Writes zarr format 3 by default (see `zarr_format`); the compressor is
+        applied as requested, and strings are stored as variable-width UTF-8.
+
     Parameters
     ----------
     input : string
@@ -980,11 +998,11 @@ def vcf_to_zarr(input, output,
     """
 
     import zarr
-
-    if zarr_format not in (2, 3):
-        raise ValueError('zarr_format must be 2 or 3, found %r' % (zarr_format,))
     import numcodecs
     from numcodecs import Blosc
+
+    if type(zarr_format) is not int or zarr_format not in (2, 3):
+        raise ValueError('zarr_format must be 2 or 3, found %r' % (zarr_format,))
 
     # samples requested?
     # noinspection PyTypeChecker
@@ -1042,14 +1060,15 @@ def vcf_to_zarr(input, output,
         # no data, bail out
         return
 
+    # check the compressor and the format of any existing store before writing anything
+    compressors = _zarr_compressors(compressor, zarr_format)
+    _zarr_check_existing_format(output, zarr_format)
+
     # open root group
     # ensure path exists
     if not os.path.exists(output):
         os.makedirs(output)
     root = zarr.open_group(output, mode='a', path=group, zarr_format=zarr_format)
-
-    # check the compressor before writing anything
-    compressors = _zarr_compressors(compressor, root.metadata.zarr_format)
 
     if samples.shape[0] > 0 and store_samples:
         # store samples, uncompressed
