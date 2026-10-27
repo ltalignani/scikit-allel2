@@ -821,7 +821,13 @@ def _zarr_compressors(compressor, zarr_format):
     from zarr.abc.codec import BytesBytesCodec
     from numcodecs import Blosc, Zstd
 
-    if compressor is None or zarr_format == 2:
+    if compressor is None:
+        return None
+    if zarr_format == 2:
+        if isinstance(compressor, BytesBytesCodec):
+            raise ValueError(
+                'compressor %r cannot be used with zarr format 2; use a numcodecs '
+                'codec' % (compressor,))
         # zarr format 2 stores numcodecs codecs as they are
         return compressor
     if isinstance(compressor, BytesBytesCodec):
@@ -908,7 +914,8 @@ def vcf_to_zarr(input, output,
                 buffer_size=DEFAULT_BUFFER_SIZE,
                 chunk_length=DEFAULT_CHUNK_LENGTH,
                 chunk_width=DEFAULT_CHUNK_WIDTH,
-                log=None):
+                log=None,
+                zarr_format=3):
     """Read data from a VCF file and load into a Zarr on-disk store.
 
     .. versionchanged:: 1.12.0
@@ -962,10 +969,20 @@ def vcf_to_zarr(input, output,
         {chunk_width}
     log : file-like, optional
         {log}
+    zarr_format : {{2, 3}}, optional
+        Zarr format to write, 3 by default. Files in zarr format 3 cannot be read
+        with zarr-python 2; use `zarr_format=2` for tools that still depend on it.
+        In zarr format 3, strings requested as fixed-width bytes (e.g., `types=
+        {{'CHROM': 'S10'}}`) are stored with the `null_terminated_bytes` data type,
+        which has no zarr specification yet; the default variable-width strings
+        use the specified `string` data type.
 
     """
 
     import zarr
+
+    if zarr_format not in (2, 3):
+        raise ValueError('zarr_format must be 2 or 3, found %r' % (zarr_format,))
     import numcodecs
     from numcodecs import Blosc
 
@@ -1029,7 +1046,7 @@ def vcf_to_zarr(input, output,
     # ensure path exists
     if not os.path.exists(output):
         os.makedirs(output)
-    root = zarr.open_group(output, mode='a', path=group)
+    root = zarr.open_group(output, mode='a', path=group, zarr_format=zarr_format)
 
     # check the compressor before writing anything
     compressors = _zarr_compressors(compressor, root.metadata.zarr_format)

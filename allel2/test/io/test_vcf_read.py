@@ -10,6 +10,7 @@ import atexit
 
 
 import zarr
+import numcodecs
 import h5py
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
@@ -2444,6 +2445,10 @@ def zarr_compressors(arr):
             out.append(('blosc', norm(c.cname), c.clevel, norm(c.shuffle)))
         elif isinstance(c, zarr.codecs.ZstdCodec):
             out.append(('zstd', c.level))
+        elif isinstance(c, numcodecs.Blosc):
+            # zarr format 2 keeps numcodecs codecs
+            shuffle = {0: 'noshuffle', 1: 'shuffle', 2: 'bitshuffle'}[c.shuffle]
+            out.append(('numcodecs.blosc', c.cname, c.clevel, shuffle))
         else:
             out.append((type(c).__name__,))
     return out
@@ -2458,6 +2463,30 @@ def test_vcf_to_zarr_compressor_default():
     callset = zarr.open_group(zarr_path, mode='r')
     for key in ['variants/POS', 'variants/CHROM', 'variants/ALT', 'calldata/GT']:
         assert [('blosc', 'lz4', 5, 'shuffle')] == zarr_compressors(callset[key])
+
+
+def test_vcf_to_zarr_format_compressor():
+    from numcodecs import Blosc
+    compressor = Blosc(cname='zstd', clevel=1, shuffle=Blosc.BITSHUFFLE)
+    for zarr_format, expected in [(2, ('numcodecs.blosc', 'zstd', 1, 'bitshuffle')),
+                                  (3, ('blosc', 'zstd', 1, 'bitshuffle'))]:
+        compressors = _vcf_to_zarr_compressors(compressor=compressor,
+                                               zarr_format=zarr_format)
+        for c in compressors.values():
+            assert [expected] == c
+    # the historical default applies to both formats
+    for c in _vcf_to_zarr_compressors(zarr_format=2).values():
+        assert [('numcodecs.blosc', 'lz4', 5, 'shuffle')] == c
+
+
+def test_vcf_to_zarr_format_invalid():
+    vcf_path = fixture_path('sample.vcf')
+    zarr_path = os.path.join(tempdir, 'format.zarr')
+    with pytest.raises(ValueError, match='zarr_format must be 2 or 3'):
+        vcf_to_zarr(vcf_path, zarr_path, zarr_format=4)
+    with pytest.raises(ValueError, match='cannot be used with zarr format 2'):
+        vcf_to_zarr(vcf_path, zarr_path, zarr_format=2, overwrite=True,
+                    compressor=zarr.codecs.ZstdCodec(level=2))
 
 
 def _vcf_to_zarr_compressors(**kwargs):
@@ -2516,6 +2545,43 @@ def test_vcf_to_zarr_default_compressor_no_deprecation_warning():
     with warnings.catch_warnings():
         warnings.filterwarnings('error', message='.*compressor.*deprecated')
         _vcf_to_zarr_compressors()
+
+
+def test_vcf_to_zarr_format():
+    vcf_paths = [fixture_path(x) for x in ['sample.vcf', 'sample.vcf.gz']]
+    zarr_path = os.path.join(tempdir, 'format.zarr')
+    # None means default types, i.e., StringDType for strings
+    param_matrix = itertools.product(vcf_paths, (3, 2), (None, '20:10000-20000'),
+                                     (None, 'S10', 'object'))
+    for vcf_path, zarr_format, region, string_type in param_matrix:
+        if string_type is None:
+            types = None
+        else:
+            types = {'CHROM': string_type, 'ALT': string_type, 'samples': string_type}
+        expected = read_vcf(vcf_path, fields='*', alt_number=2, region=region,
+                            types=types)
+        if os.path.exists(zarr_path):
+            shutil.rmtree(zarr_path)
+        vcf_to_zarr(vcf_path, zarr_path, fields='*', alt_number=2, chunk_length=2,
+                    region=region, types=types, zarr_format=zarr_format)
+        actual = zarr.open_group(zarr_path, mode='r')
+        assert zarr_format == actual.metadata.zarr_format
+        for key in expected.keys():
+            compare_zarr_arrays(expected[key], actual[key][:])
+
+
+def test_read_legacy_scikit_allel_zarr():
+    # sample.scikit-allel-1.3.13.zarr.zip was written by scikit-allel 1.3.13 with
+    # zarr 2.18 (zarr format 2), then zipped:
+    #   allel.vcf_to_zarr('sample.vcf', out, fields='*', alt_number=2, chunk_length=4)
+    store = zarr.storage.ZipStore(fixture_path('sample.scikit-allel-1.3.13.zarr.zip'),
+                                  mode='r')
+    actual = zarr.open_group(store, mode='r')
+    assert 2 == actual.metadata.zarr_format
+    expected = read_vcf(fixture_path('sample.vcf'), fields='*', alt_number=2)
+    for key in expected.keys():
+        compare_zarr_arrays(expected[key], actual[key][:])
+    store.close()
 
 
 def test_vcf_to_zarr_empty():
