@@ -821,7 +821,13 @@ def _zarr_compressors(compressor, zarr_format):
     from zarr.abc.codec import BytesBytesCodec
     from numcodecs import Blosc, Zstd
 
-    if compressor is None or zarr_format == 2:
+    if compressor is None:
+        return None
+    if zarr_format == 2:
+        if isinstance(compressor, BytesBytesCodec):
+            raise ValueError(
+                'compressor %r cannot be used with zarr format 2; use a numcodecs '
+                'codec' % (compressor,))
         # zarr format 2 stores numcodecs codecs as they are
         return compressor
     if isinstance(compressor, BytesBytesCodec):
@@ -837,6 +843,20 @@ def _zarr_compressors(compressor, zarr_format):
     raise ValueError(
         'compressor %r cannot be used with zarr format %s; use a codec from '
         'zarr.codecs, numcodecs.Blosc or numcodecs.Zstd' % (compressor, zarr_format))
+
+
+def _zarr_check_existing_format(output, zarr_format):
+    """Refuse to write into an existing store of another zarr format, which zarr
+    would otherwise turn into a store mixing both formats."""
+    import zarr
+    try:
+        existing = zarr.open_group(output, mode='r').metadata.zarr_format
+    except (FileNotFoundError, zarr.errors.GroupNotFoundError):
+        return
+    if existing != zarr_format:
+        raise ValueError(
+            'cannot write zarr format %s into %r, which has existing zarr format %s'
+            % (zarr_format, output, existing))
 
 
 def _zarr_setup_datasets(chunk, root, chunk_length, chunk_width, compressors, overwrite,
@@ -908,12 +928,17 @@ def vcf_to_zarr(input, output,
                 buffer_size=DEFAULT_BUFFER_SIZE,
                 chunk_length=DEFAULT_CHUNK_LENGTH,
                 chunk_width=DEFAULT_CHUNK_WIDTH,
-                log=None):
+                log=None,
+                zarr_format=3):
     """Read data from a VCF file and load into a Zarr on-disk store.
 
     .. versionchanged:: 1.12.0
         Now will not create any output files if no variants are found in the VCF file or
         matching the requested region.
+
+    .. versionchanged:: 2.0.0
+        Writes zarr format 3 by default (see `zarr_format`); the compressor is
+        applied as requested, and strings are stored as variable-width UTF-8.
 
     Parameters
     ----------
@@ -962,12 +987,22 @@ def vcf_to_zarr(input, output,
         {chunk_width}
     log : file-like, optional
         {log}
+    zarr_format : {{2, 3}}, optional
+        Zarr format to write, 3 by default. Files in zarr format 3 cannot be read
+        with zarr-python 2; use `zarr_format=2` for tools that still depend on it.
+        In zarr format 3, strings requested as fixed-width bytes (e.g., `types=
+        {{'CHROM': 'S10'}}`) are stored with the `null_terminated_bytes` data type,
+        which has no zarr specification yet; the default variable-width strings
+        use the specified `string` data type.
 
     """
 
     import zarr
     import numcodecs
     from numcodecs import Blosc
+
+    if type(zarr_format) is not int or zarr_format not in (2, 3):
+        raise ValueError('zarr_format must be 2 or 3, found %r' % (zarr_format,))
 
     # samples requested?
     # noinspection PyTypeChecker
@@ -1025,14 +1060,15 @@ def vcf_to_zarr(input, output,
         # no data, bail out
         return
 
+    # check the compressor and the format of any existing store before writing anything
+    compressors = _zarr_compressors(compressor, zarr_format)
+    _zarr_check_existing_format(output, zarr_format)
+
     # open root group
     # ensure path exists
     if not os.path.exists(output):
         os.makedirs(output)
-    root = zarr.open_group(output, mode='a', path=group)
-
-    # check the compressor before writing anything
-    compressors = _zarr_compressors(compressor, root.metadata.zarr_format)
+    root = zarr.open_group(output, mode='a', path=group, zarr_format=zarr_format)
 
     if samples.shape[0] > 0 and store_samples:
         # store samples, uncompressed
