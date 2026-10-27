@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
+import gc
 import io
 import os
+import time
 import shutil
 import itertools
 import gzip
@@ -1350,14 +1352,31 @@ def test_read_region_tabix_error(monkeypatch):
     vcf_path = os.path.join(tempdir, 'no_index.vcf.gz')
     shutil.copy(src, vcf_path)
     expected = read_vcf(src, region='20', fields='*')
-    # and no fixed wait for tabix to fail
-    import allel2.io.vcf_read
-    monkeypatch.setattr(allel2.io.vcf_read.time, 'sleep',
-                        lambda s: pytest.fail('unexpected sleep'))
+    # detecting the failure must not rely on sleeping (monkeypatch restores it)
+    monkeypatch.setattr(time, 'sleep', lambda s: pytest.fail('unexpected sleep'))
     with pytest.warns(UserWarning, match='error occurred attempting tabix'):
         actual = read_vcf(vcf_path, region='20', fields='*')
     for key in expected:
         compare_arrays(expected[key], actual[key])
+
+
+@requires_tabix
+def test_read_region_tabix_process_closed():
+    # each tabix process is waited for once its output has been read
+    vcf_path = fixture_path('sample.vcf.gz')
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        for _ in range(3):
+            read_vcf(vcf_path, region='20', fields='*')
+        gc.collect()
+    assert [] == [w for w in caught if issubclass(w.category, ResourceWarning)]
+
+
+@requires_tabix
+def test_read_region_invalid():
+    # tabix reports the bad region on stderr; allel2 raises an explicit error
+    with pytest.raises(ValueError, match='bad region string'):
+        read_vcf(fixture_path('sample.vcf.gz'), region='20:abc')
 
 
 def test_read_region():

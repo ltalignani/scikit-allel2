@@ -1118,31 +1118,50 @@ vcf_to_zarr.__doc__ = vcf_to_zarr.__doc__.format(
 )
 
 
-# noinspection PyShadowingBuiltins
-def _open_tabix(tabix, input, region):
-    """Run tabix on a region and return its standard output.
+class _TabixStream:
+    """Standard output of a running tabix process, read by FileInputStream.
 
-    Messages printed by tabix are kept out of the VCF stream: they are relayed
-    as warnings, or raised as an error if tabix fails without output.
+    Messages printed by tabix are kept out of the VCF stream and relayed as
+    warnings; closing the stream waits for the process.
     """
-    # a file rather than a pipe, so that tabix never blocks on its stderr
-    with tempfile.TemporaryFile() as err:
-        p = subprocess.Popen([tabix, '-h', input, region], stdout=subprocess.PIPE,
-                             stderr=err)
+
+    def __init__(self, tabix, input, region):
+        # a file rather than a pipe, so that tabix never blocks on its stderr
+        self._err = tempfile.TemporaryFile()
+        self._relayed = 0
+        self._process = subprocess.Popen([tabix, '-h', input, region],
+                                         stdout=subprocess.PIPE, stderr=self._err)
         # wait for the first output, or for tabix to exit without output
-        has_output = len(p.stdout.peek(1)) > 0
-        if not has_output and p.wait() != 0:
-            p.stdout.close()
-            err.seek(0)
-            raise RuntimeError(str(err.read(), 'utf-8', 'replace').strip())
-        # tabix prints its messages before any output
-        err.seek(0)
-        for message in str(err.read(), 'utf-8', 'replace').splitlines():
+        if not self._process.stdout.peek(1) and self._process.wait() != 0:
+            message = self._read_messages()
+            self.close()
+            raise RuntimeError(message)
+        self._relay_messages()
+
+    def _read_messages(self):
+        self._err.seek(self._relayed)
+        text = self._err.read()
+        self._relayed += len(text)
+        return str(text, 'utf-8', 'replace').strip()
+
+    def _relay_messages(self):
+        for message in self._read_messages().splitlines():
             if message.strip():
                 warnings.warn('tabix: ' + message.strip())
-    return p.stdout
+
+    def readinto(self, b):
+        return self._process.stdout.readinto(b)
+
+    def close(self):
+        if self._err.closed:
+            return
+        self._process.stdout.close()
+        self._process.wait()
+        self._relay_messages()
+        self._err.close()
 
 
+# noinspection PyShadowingBuiltins
 def _setup_input_stream(input, region=None, tabix=None, buffer_size=DEFAULT_BUFFER_SIZE):
 
     # obtain a file-like object
@@ -1153,7 +1172,7 @@ def _setup_input_stream(input, region=None, tabix=None, buffer_size=DEFAULT_BUFF
 
             try:
                 # try tabix
-                fileobj = _open_tabix(tabix, input, region)
+                fileobj = _TabixStream(tabix, input, region)
                 close = True
                 # N.B., still pass the region parameter through so we get strictly only
                 # variants that start within the requested region. See also
