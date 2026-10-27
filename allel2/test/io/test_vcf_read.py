@@ -1322,6 +1322,44 @@ def test_alt_number():
     assert (9, 5) == a.shape
 
 
+requires_tabix = pytest.mark.skipif(shutil.which('tabix') is None,
+                                    reason='tabix not installed')
+
+
+@requires_tabix
+def test_read_region_tabix_warning():
+    # an index older than its data file makes tabix print a warning on stderr,
+    # which must not end up in the VCF stream
+    src = fixture_path('sample.vcf.gz')
+    vcf_path = os.path.join(tempdir, 'old_index.vcf.gz')
+    shutil.copy(src, vcf_path)
+    shutil.copy(src + '.tbi', vcf_path + '.tbi')
+    os.utime(vcf_path + '.tbi', (0, 0))
+    expected = read_vcf(src, region='20', fields='*')
+    with pytest.warns(UserWarning, match='older than the data file'):
+        actual = read_vcf(vcf_path, region='20', fields='*')
+    assert sorted(expected) == sorted(actual)
+    for key in expected:
+        compare_arrays(expected[key], actual[key])
+
+
+@requires_tabix
+def test_read_region_tabix_error(monkeypatch):
+    # tabix fails (no index): fall back to scanning the file, with a warning
+    src = fixture_path('sample.vcf.gz')
+    vcf_path = os.path.join(tempdir, 'no_index.vcf.gz')
+    shutil.copy(src, vcf_path)
+    expected = read_vcf(src, region='20', fields='*')
+    # and no fixed wait for tabix to fail
+    import allel2.io.vcf_read
+    monkeypatch.setattr(allel2.io.vcf_read.time, 'sleep',
+                        lambda s: pytest.fail('unexpected sleep'))
+    with pytest.warns(UserWarning, match='error occurred attempting tabix'):
+        actual = read_vcf(vcf_path, region='20', fields='*')
+    for key in expected:
+        compare_arrays(expected[key], actual[key])
+
+
 def test_read_region():
 
     for vcf_path in (fixture_path('sample.vcf.gz'),

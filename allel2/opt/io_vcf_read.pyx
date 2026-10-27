@@ -232,7 +232,8 @@ cdef class FileInputStream(InputStreamBase):
         self.advance()
 
     def __dealloc__(self):
-        if self.close:
+        # fileobj may already be gone when the object is collected late
+        if self.close and self.fileobj is not None:
             self.fileobj.close()
 
     cdef int _bufferup(self) except -1:  # nogil

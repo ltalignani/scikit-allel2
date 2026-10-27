@@ -13,6 +13,7 @@ from collections import namedtuple, defaultdict
 import warnings
 import time
 import subprocess
+import tempfile
 import textwrap
 from collections import OrderedDict
 
@@ -1118,6 +1119,30 @@ vcf_to_zarr.__doc__ = vcf_to_zarr.__doc__.format(
 
 
 # noinspection PyShadowingBuiltins
+def _open_tabix(tabix, input, region):
+    """Run tabix on a region and return its standard output.
+
+    Messages printed by tabix are kept out of the VCF stream: they are relayed
+    as warnings, or raised as an error if tabix fails without output.
+    """
+    # a file rather than a pipe, so that tabix never blocks on its stderr
+    with tempfile.TemporaryFile() as err:
+        p = subprocess.Popen([tabix, '-h', input, region], stdout=subprocess.PIPE,
+                             stderr=err)
+        # wait for the first output, or for tabix to exit without output
+        has_output = len(p.stdout.peek(1)) > 0
+        if not has_output and p.wait() != 0:
+            p.stdout.close()
+            err.seek(0)
+            raise RuntimeError(str(err.read(), 'utf-8', 'replace').strip())
+        # tabix prints its messages before any output
+        err.seek(0)
+        for message in str(err.read(), 'utf-8', 'replace').splitlines():
+            if message.strip():
+                warnings.warn('tabix: ' + message.strip())
+    return p.stdout
+
+
 def _setup_input_stream(input, region=None, tabix=None, buffer_size=DEFAULT_BUFFER_SIZE):
 
     # obtain a file-like object
@@ -1128,20 +1153,7 @@ def _setup_input_stream(input, region=None, tabix=None, buffer_size=DEFAULT_BUFF
 
             try:
                 # try tabix
-                p = subprocess.Popen([tabix, '-h', input, region],
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT,
-                                     bufsize=0)
-
-                # check if tabix exited early, look for tabix error
-                time.sleep(.5)
-                poll = p.poll()
-                if poll is not None and poll > 0:
-                    err = p.stdout.read()
-                    err = str(err, 'ascii')
-                    p.stdout.close()
-                    raise RuntimeError(err.strip())
-                fileobj = p.stdout
+                fileobj = _open_tabix(tabix, input, region)
                 close = True
                 # N.B., still pass the region parameter through so we get strictly only
                 # variants that start within the requested region. See also
