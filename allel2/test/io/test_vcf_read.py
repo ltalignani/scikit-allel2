@@ -2182,7 +2182,7 @@ def test_vcf_to_npz():
             os.remove(npz_path)
         with warnings.catch_warnings():
             # StringDType must not be pickled as a custom dtype
-            warnings.simplefilter('error', UserWarning)
+            warnings.filterwarnings('error', message='Custom dtypes', category=UserWarning)
             vcf_to_npz(vcf_path, npz_path, fields='*', chunk_length=2, alt_number=2,
                        region=region, tabix=tabix, samples=samples, types=types)
         if expected is None:
