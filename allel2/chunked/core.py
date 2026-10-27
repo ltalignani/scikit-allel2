@@ -7,7 +7,7 @@ import numpy as np
 
 
 from allel2.chunked import util as _util
-from allel2.abc import ArrayWrapper, DisplayAsTable
+from allel2.abc import ArrayWrapper, DisplayAsTable, array_protocol
 from allel2.model.ndarray import subset as _numpy_subset, NumpyRecArrayWrapper
 from allel2.model.generic import _index_values
 
@@ -909,13 +909,7 @@ class ChunkedTableWrapper(DisplayAsTable):
                 'item not supported for indexing: %s' % repr(item))
 
     def __array__(self, dtype=None, copy=None):
-        # see allel2.abc.ArrayWrapper.__array__
-        a = np.asanyarray(self[:])
-        if dtype is not None:
-            a = a.astype(dtype, copy=False)
-        if copy:
-            a = a.copy()
-        return a
+        return array_protocol(self[:], True, dtype, copy)
 
     def __getattr__(self, item):
         if item in self._names:

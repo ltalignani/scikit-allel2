@@ -3,6 +3,20 @@
 import numpy as np
 
 
+def array_protocol(data, loaded, dtype=None, copy=None):
+    """Implement NumPy's __array__ protocol for `data`, which is a copy if it had to
+    be `loaded` (e.g., from zarr or HDF5): copy=False then raises, as NumPy expects."""
+    a = np.asanyarray(data)
+    converted = dtype is not None and a.dtype != np.dtype(dtype)
+    if copy is False and (loaded or converted):
+        raise ValueError('a copy is needed to convert to a NumPy array')
+    if converted:
+        a = a.astype(dtype)
+    elif copy and not loaded:
+        a = a.copy()
+    return a
+
+
 class ArrayWrapper(object):
     """Abstract base class that delegates to a wrapped array-like object."""
 
@@ -56,14 +70,8 @@ class ArrayWrapper(object):
         return self.values.shape[0]
 
     def __array__(self, dtype=None, copy=None):
-        # copy=False is not refused when a copy is needed: NumPy 2.0 passes it when
-        # assigning into an array, where any copy is acceptable
-        a = np.asanyarray(self.values[:])
-        if dtype is not None:
-            a = a.astype(dtype, copy=False)
-        if copy:
-            a = a.copy()
-        return a
+        return array_protocol(self.values[:], not isinstance(self.values, np.ndarray),
+                              dtype, copy)
 
     def __eq__(self, other):
         if isinstance(other, ArrayWrapper):
@@ -296,7 +304,9 @@ class DisplayableArray(ArrayWrapper):
 
 
 def _repr_item(i):
-    # show 2 rather than NumPy 2's np.int32(2)
+    # show 2 rather than NumPy 2's np.int32(2), and float32 values as written
+    if isinstance(i, (np.number, np.bool_, np.datetime64, np.timedelta64)):
+        return str(i)
     if isinstance(i, np.generic):
         i = i.item()
     return repr(i)

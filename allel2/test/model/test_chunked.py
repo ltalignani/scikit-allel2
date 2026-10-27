@@ -22,7 +22,6 @@ from allel2 import chunked
 from allel2.chunked.storage_zarr import ZarrTable
 
 
-
 class GenotypeChunkedArrayTests(GenotypeArrayInterface, unittest.TestCase):
 
     _class = GenotypeChunkedArray
@@ -754,3 +753,19 @@ def test_zarr_table_with_strings_display():
     # rows hold scalars, not 0-d arrays
     assert ('chr1', 2) == tuple(vt[0])
     assert isinstance(vt[0].POS, np.integer)
+
+
+def test_array_protocol_copy():
+    # NumPy 2 protocol: copy=False refuses when data must be loaded or converted
+    data = np.array(diploid_genotype_data, dtype='i1')
+    g = GenotypeArray(data)
+    assert np.shares_memory(data, np.asarray(g, copy=False))
+    assert not np.shares_memory(data, np.asarray(g, copy=True))
+    with pytest.raises(ValueError):
+        np.asarray(g, dtype='i4', copy=False)
+    assert 'int32' == np.asarray(g, dtype='i4').dtype
+    with pytest.warns(DeprecationWarning):
+        gc = GenotypeChunkedArray(chunked.copy(data))
+    aeq(data, np.asarray(gc))
+    with pytest.raises(ValueError):
+        np.asarray(gc, copy=False)

@@ -218,7 +218,7 @@ def get_compression_opts(data):
             return None
         if hasattr(compressor, 'get_config'):
             config = compressor.get_config()
-            del config['id']
+            config.pop('id', None)
             return config
         return compressor.to_dict()['configuration']
     else:

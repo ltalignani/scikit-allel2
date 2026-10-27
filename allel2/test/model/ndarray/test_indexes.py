@@ -186,3 +186,9 @@ def test_display_shows_plain_values():
     idx = SortedIndex([2, 5, 8], dtype='i4')
     assert '[2, 5, 8]' in repr(idx)
     assert "[b'chr1', b'chr2']" in repr(UniqueIndex(np.array([b'chr1', b'chr2'])))
+
+
+def test_display_floats_as_stored():
+    # float32 values are shown as written, not with their float64 expansion
+    idx = SortedIndex(np.array([0.1, 0.5], dtype='f4'))
+    assert '[0.1, 0.5]' in repr(idx)
