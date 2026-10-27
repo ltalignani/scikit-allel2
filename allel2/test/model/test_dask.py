@@ -285,9 +285,10 @@ class AlleleCountsDaskArrayTests(AlleleCountsArrayInterface, unittest.TestCase):
         self.assertIsInstance(s.compute()[()], np.uint16)
 
 
-def zarr_array(data, chunks, dtype=None):
+def zarr_array_full_chunks(data, chunks, dtype=None):
+    """In-memory zarr array; None in `chunks` means one chunk along that dimension,
+    which zarr 3 no longer accepts directly."""
     data = np.asarray(data, dtype=dtype)
-    # zarr 3 does not accept None for an unchunked dimension
     chunks = tuple(n if c is None else c for c, n in zip(chunks, data.shape))
     return zarr.array(data, chunks=chunks)
 
@@ -295,28 +296,38 @@ def zarr_array(data, chunks, dtype=None):
 class GenotypeDaskZarrArrayTests(GenotypeDaskArrayTests):
 
     def setup_instance(self, data, dtype=None):
-        return GenotypeDaskArray(zarr_array(data, chunks=(2, 2, None), dtype=dtype))
+        return GenotypeDaskArray(zarr_array_full_chunks(data, chunks=(2, 2, None), dtype=dtype))
 
 
 class HaplotypeDaskZarrArrayTests(HaplotypeDaskArrayTests):
 
     def setup_instance(self, data, dtype=None):
-        return HaplotypeDaskArray(zarr_array(data, chunks=(2, 2), dtype=dtype))
+        return HaplotypeDaskArray(zarr_array_full_chunks(data, chunks=(2, 2), dtype=dtype))
 
 
 class AlleleCountsDaskZarrArrayTests(AlleleCountsDaskArrayTests):
 
     def setup_instance(self, data):
-        return AlleleCountsDaskArray(zarr_array(data, chunks=(2, None)))
+        return AlleleCountsDaskArray(zarr_array_full_chunks(data, chunks=(2, None)))
 
 
-def test_genotype_dask_array_on_zarr_store(tmp_path):
-    # a Dask array backed by a zarr 3 array on disk gives the NumPy results
-    g = GenotypeArray(diploid_genotype_data, dtype='i1')
-    z = zarr.create_array(zarr.storage.LocalStore(tmp_path / 'gt.zarr'), shape=g.shape,
-                          chunks=(2, 2, 2), dtype=g.dtype)
-    z[:] = g.values
-    gd = GenotypeDaskArray(zarr.open_array(tmp_path / 'gt.zarr', mode='r'))
-    aeq(g.count_alleles(), gd.count_alleles().compute())
-    aeq(g.to_n_alt(), gd.to_n_alt().compute())
-    aeq(g.is_het(), gd.is_het().compute())
+@pytest.mark.parametrize('numpy_class, dask_class, data, dtype', [
+    (GenotypeArray, GenotypeDaskArray, diploid_genotype_data, 'i1'),
+    (HaplotypeArray, HaplotypeDaskArray, haplotype_data, 'i1'),
+    (AlleleCountsArray, AlleleCountsDaskArray, allele_counts_data, 'i4'),
+])
+def test_dask_array_on_zarr_store(tmp_path, numpy_class, dask_class, data, dtype):
+    # a Dask array backed by a zarr 3 array stored on disk (not only in memory),
+    # with several chunks, gives the same results as the NumPy-backed array
+    expected = numpy_class(data, dtype=dtype)
+    store_path = tmp_path / 'data.zarr'
+    z = zarr.create_array(zarr.storage.LocalStore(store_path), shape=expected.shape,
+                          chunks=(2, 2) + expected.shape[2:], dtype=expected.dtype)
+    z[:] = expected.values
+    actual = dask_class(zarr.open_array(store_path, mode='r'))
+    aeq(expected, actual.compute())
+    if numpy_class is not AlleleCountsArray:
+        aeq(expected.count_alleles(), actual.count_alleles().compute())
+    if numpy_class is GenotypeArray:
+        aeq(expected.to_n_alt(), actual.to_n_alt().compute())
+        aeq(expected.is_het(), actual.is_het().compute())
