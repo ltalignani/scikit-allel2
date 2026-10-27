@@ -72,7 +72,7 @@ class GenotypeChunkedArrayTests(GenotypeArrayInterface, unittest.TestCase):
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_data))
         # default is zarr mem
-        assert isinstance(g.values, zarr.core.Array)
+        assert isinstance(g.values, zarr.Array)
 
     def test_slice_types(self):
 
@@ -167,7 +167,7 @@ class GenotypeChunkedArrayTestsZarrMemStorage(GenotypeChunkedArrayTests):
 
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_data))
-        assert isinstance(g.values, zarr.core.Array)
+        assert isinstance(g.values, zarr.Array)
 
 
 class GenotypeChunkedArrayTestsZarrTmpStorage(GenotypeChunkedArrayTests):
@@ -182,7 +182,7 @@ class GenotypeChunkedArrayTestsZarrTmpStorage(GenotypeChunkedArrayTests):
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_data))
         assert isinstance(g.values, zarr.Array)
-        assert isinstance(g.values.store, zarr.DirectoryStore)
+        assert isinstance(g.values.store, zarr.storage.LocalStore)
 
 
 class GenotypeChunkedArrayTestsHDF5TmpStorage(GenotypeChunkedArrayTests):
@@ -433,7 +433,7 @@ class GenotypeAlleleCountsChunkedArrayTests(GenotypeAlleleCountsArrayInterface,
     def test_storage(self):
         g = self.setup_instance(np.array(diploid_genotype_ac_data))
         # default is zarr mem
-        assert isinstance(g.values, zarr.core.Array)
+        assert isinstance(g.values, zarr.Array)
 
     def test_slice_types(self):
 
@@ -581,8 +581,8 @@ class VariantChunkedTableTestsZarrStorage(VariantChunkedTableTests):
     # noinspection PyMethodMayBeStatic
     def test_zarr_group(self):
         z = zarr.group()
-        z.create_dataset('chrom', data=['1', '2', '3'])
-        z.create_dataset('pos', data=[2, 4, 6])
+        z.create_array('chrom', data=np.array(['1', '2', '3']))
+        z.create_array('pos', data=np.array([2, 4, 6]))
         vt = VariantChunkedTable(z)
         assert isinstance(vt.values, zarr.Group)
 
@@ -629,3 +629,35 @@ class AlleleCountsChunkedTableTests(unittest.TestCase):
         loc = np.array([True, False, True, False, True])
         t = ac_subpops.compress(loc)
         assert 3 == len(t)
+
+
+def test_zarr_storage_string_objects():
+    # zarr 3 cannot store object arrays: strings (e.g., read with h5py) become
+    # StringDType, anything else is refused rather than silently converted
+    strings = np.array([b'chr1', 'chr2'], dtype=object)
+    z = chunked.zarrmem_storage.array(strings)
+    assert np.dtypes.StringDType() == z.dtype
+    assert ['chr1', 'chr2'] == z[:].tolist()
+    with pytest.raises(ValueError):
+        chunked.zarrmem_storage.array(np.array([1, 2, None], dtype=object))
+
+
+def test_zarr_storage_table_chunks_per_column():
+    # chunks are normalised for each column, whatever its number of dimensions
+    data = {'pos': np.arange(10), 'ac': np.ones((10, 3), dtype='i4'),
+            'gt': np.zeros((10, 2, 2), dtype='i1')}
+    for chunks, expected in [(4, {'pos': (4,), 'ac': (4, 3), 'gt': (4, 2, 2)}),
+                             ((4,), {'pos': (4,), 'ac': (4, 3), 'gt': (4, 2, 2)}),
+                             ((4, 2), {'pos': (4,), 'ac': (4, 2), 'gt': (4, 2, 2)})]:
+        t = chunked.zarrmem_storage.table(data, chunks=chunks)
+        assert expected == {n: t[n].chunks for n in data}
+
+
+def test_numpy_indexing_unchanged():
+    # unwrapping 0-d results is only for chunked/zarr data, not NumPy arrays
+    g = GenotypeArray(np.array(diploid_genotype_data, dtype='i1'))
+    assert isinstance(g[0, 0, 0], np.int8)
+    a = np.empty(1, dtype=object)
+    a[0] = np.array(7)
+    from allel2.model.generic import _index_values
+    assert isinstance(_index_values(a, 0), np.ndarray)

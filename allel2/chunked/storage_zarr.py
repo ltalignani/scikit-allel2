@@ -3,14 +3,11 @@ import operator
 from functools import reduce
 
 
+import numbers
+
+import numpy as np
 import zarr
-try:
-    # zarr 3.0+
-    from zarr.storage import MemoryStore, LocalStore
-except ImportError:
-    # zarr 2.x compatibility
-    from zarr import MemoryStore
-    from zarr.storage import DirectoryStore as LocalStore
+from zarr.storage import MemoryStore, LocalStore
 import tempfile
 import atexit
 import os
@@ -23,6 +20,36 @@ from allel2.chunked import util as _util
 
 def default_chunks(data, expectedlen):
     return None
+
+
+def _zarr_compatible(a):
+    # zarr 3 cannot store object arrays, and reads strings back as StringDType
+    # anyway: strings (e.g., read with h5py) are stored as StringDType; other
+    # object data is left for zarr to refuse rather than silently converted
+    if getattr(a, 'dtype', None) != object:
+        return a
+    a = np.asarray(a)
+    if all(isinstance(x, (str, bytes)) for x in a.flat):
+        # decode bytes explicitly: numpy 2.0 casts them to their repr
+        a = np.array([x.decode() if isinstance(x, bytes) else x for x in a.flat],
+                     dtype=np.dtypes.StringDType()).reshape(a.shape)
+    return a
+
+
+def _column_chunks(chunks, shape):
+    """Chunk shape for an array of `shape`: an int is a number of rows, and a
+    tuple shorter than `shape` is completed with whole dimensions; None means
+    chunks chosen by zarr."""
+    if chunks is None or chunks is True:
+        return None
+    if isinstance(chunks, str):
+        # e.g. 'auto', left to zarr
+        return chunks
+    if len(shape) == 0:
+        return ()
+    if isinstance(chunks, numbers.Integral):
+        chunks = (chunks,)
+    return tuple(chunks[:len(shape)]) + tuple(shape[len(chunks):])
 
 
 class ZarrStorage(object):
@@ -50,6 +77,8 @@ class ZarrStorage(object):
         kwargs.setdefault('chunks', default_chunks(data, expectedlen))
 
         # create
+        data = _zarr_compatible(data)
+        kwargs['chunks'] = _column_chunks(kwargs['chunks'], np.shape(data))
         z = zarr.array(data, **kwargs)
 
         return z
@@ -64,17 +93,13 @@ class ZarrStorage(object):
 
         # create columns
         for n, c in zip(names, columns):
-            if chunks is None:
-                chunks = default_chunks(c, expectedlen)
-            # zarr 3.0+ compatibility: array() requires shape and dtype
-            try:
-                # zarr 2.x style
-                g.array(name=n, data=c, chunks=chunks)
-            except TypeError:
-                # zarr 3.0+ style - requires shape and dtype
-                import numpy as np
-                c_array = np.asarray(c)
-                g.array(name=n, data=c, chunks=chunks, shape=c_array.shape, dtype=c_array.dtype)
+            c = _zarr_compatible(c)
+            column_chunks = chunks
+            if column_chunks is None:
+                column_chunks = default_chunks(c, expectedlen)
+            column_chunks = _column_chunks(column_chunks, c.shape)
+            g.create_array(name=n, data=c,
+                           chunks='auto' if column_chunks is None else column_chunks)
 
         # create table
         ztbl = ZarrTable(g, names=names)
@@ -85,12 +110,7 @@ class ZarrTable(object):
 
     def __init__(self, grp, names=None):
         self.grp = grp
-        # zarr 3.0+ compatibility: array_keys() changed to keys()
-        try:
-            available_names = sorted(grp.array_keys())
-        except AttributeError:
-            # zarr 3.0+
-            available_names = sorted([k for k in grp.keys() if hasattr(grp[k], 'shape')])
+        available_names = sorted(grp.array_keys())
         if names is None:
             names = available_names
         else:

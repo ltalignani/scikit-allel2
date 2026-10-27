@@ -472,3 +472,26 @@ def check_min_samples(actual, expect):
 def check_type(obj, expected):
     if not isinstance(obj, expected):
         raise TypeError('bad argument type, expected %s, found %s' % (expected, type(obj)))
+
+
+def get_blen_array(data, blen=None):
+    """Try to guess a reasonable block length to use for block-wise iteration
+    over `data`."""
+
+    if blen is None:
+
+        if hasattr(data, 'chunks') and \
+                hasattr(data, 'shape') and \
+                hasattr(data.chunks, '__len__') and \
+                hasattr(data.shape, '__len__') and \
+                len(data.chunks) == len(data.shape):
+            # something like h5py dataset or zarr array
+            return data.chunks[0]
+
+        else:
+            # fall back to something simple, ~1Mb chunks
+            row = np.asarray(data[0])
+            return max(1, (2**20) // row.nbytes)
+
+    else:
+        return blen

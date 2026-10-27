@@ -922,7 +922,8 @@ class ChunkedTableWrapper(DisplayAsTable):
         return self.caption
 
     def __len__(self):
-        return len(self._columns[0])
+        # zarr 3 arrays do not implement len()
+        return self._columns[0].shape[0]
 
     @property
     def shape(self):
