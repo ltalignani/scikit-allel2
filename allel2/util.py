@@ -388,7 +388,7 @@ def hdf5_cache(filepath=None, parent=None, group=None, names=None, typed=False,
         executing bar
         (array([0, 1, 2]), array([0, 1, 4]), 9)
         >>> bar(3)
-        (array([0, 1, 2]), array([0, 1, 4]), 9)
+        (array([0, 1, 2]), array([0, 1, 4]), np.int64(9))
 
     Names can also be specified for the datasets, e.g.::
 
@@ -402,7 +402,7 @@ def hdf5_cache(filepath=None, parent=None, group=None, names=None, typed=False,
         executing baz
         (array([0, 1, 2]), array([0, 1, 4]), 9)
         >>> baz(3)
-        (array([0, 1, 2]), array([0, 1, 4]), 9)
+        (array([0, 1, 2]), array([0, 1, 4]), np.int64(9))
 
     """
 

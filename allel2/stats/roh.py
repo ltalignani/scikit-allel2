@@ -112,10 +112,9 @@ def roh_mhmm(gv, pos, phet_roh=0.001, phet_nonroh=(0.0025, 0.01), transition=1e-
     # adapt the dataframe for ROH
     for col in 'state', 'support', 'start_lidx', 'stop_ridx', 'size_max':
         del df_roh[col]
-    df_roh.rename(columns={'start_ridx': 'start',
-                           'stop_lidx': 'stop',
-                           'size_min': 'length'},
-                  inplace=True)
+    df_roh = df_roh.rename(columns={'start_ridx': 'start',
+                                    'stop_lidx': 'stop',
+                                    'size_min': 'length'})
     # make coordinates 1-based
     df_roh['start'] = df_roh['start'] + 1
     df_roh['stop'] = df_roh['stop'] + 1

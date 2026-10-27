@@ -76,4 +76,5 @@ jobs:
 
       - name: Test
         run: |
-          pytest -v allel2
+          # doctests check the outputs shown in the documentation
+          pytest -v --doctest-modules allel2

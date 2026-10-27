@@ -9,6 +9,7 @@ import numpy as np
 from allel2.chunked import util as _util
 from allel2.abc import ArrayWrapper, DisplayAsTable
 from allel2.model.ndarray import subset as _numpy_subset, NumpyRecArrayWrapper
+from allel2.model.generic import _index_values
 
 
 @_util._deprecated('dask.array')
@@ -878,7 +879,7 @@ class ChunkedTableWrapper(DisplayAsTable):
 
         elif isinstance(item, int):
             # item is row index, return row
-            return self.rowcls(*(col[item] for col in self._columns))
+            return self.rowcls(*(_index_values(col, item) for col in self._columns))
 
         elif isinstance(item, slice):
             # item is row slice, return numpy recarray
@@ -907,10 +908,13 @@ class ChunkedTableWrapper(DisplayAsTable):
             raise IndexError(
                 'item not supported for indexing: %s' % repr(item))
 
-    def __array__(self, *args):
+    def __array__(self, dtype=None, copy=None):
+        # see allel2.abc.ArrayWrapper.__array__
         a = np.asanyarray(self[:])
-        if args:
-            a = a.astype(args[0])
+        if dtype is not None:
+            a = a.astype(dtype, copy=False)
+        if copy:
+            a = a.copy()
         return a
 
     def __getattr__(self, item):
@@ -955,9 +959,11 @@ class ChunkedTableWrapper(DisplayAsTable):
     def dtype(self):
         items = []
         for n, c in zip(self._names, self._columns):
+            # structured dtypes cannot hold StringDType (strings stored by zarr 3)
+            dtype = np.dtype(object) if c.dtype.kind == 'T' else c.dtype
             # need to account for multidimensional columns
-            t = (n, c.dtype) if len(c.shape) == 1 else \
-                (n, c.dtype, c.shape[1:])
+            t = (n, dtype) if len(c.shape) == 1 else \
+                (n, dtype, c.shape[1:])
             items.append(t)
         return np.dtype(items)
 

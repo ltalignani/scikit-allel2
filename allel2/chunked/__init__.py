@@ -30,11 +30,11 @@ For example::
     >>> import numpy as np
     >>> a = np.arange(10000000)
     >>> chunked.copy(a)
-    <zarr.core.Array (10000000,) int64>
+    <Array ... shape=(10000000,) dtype=int64>
     >>> chunked.copy(a, storage='zarrmem')
-    <zarr.core.Array (10000000,) int64>
+    <Array ... shape=(10000000,) dtype=int64>
     >>> chunked.copy(a, storage='zarrtmp')
-    <zarr.core.Array (10000000,) int64>
+    <Array ... shape=(10000000,) dtype=int64>
     >>> chunked.copy(a, storage='hdf5mem_zlib1')
     <HDF5 dataset "data": shape (10000000,), type "<i8">
     >>> chunked.copy(a, storage='hdf5tmp_zlib1')

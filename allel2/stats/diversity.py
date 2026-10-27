@@ -251,7 +251,7 @@ def sequence_diversity(pos, ac, start=None, stop=None,
     >>> pos = [2, 4, 7, 14, 15, 18, 19, 25, 27]
     >>> pi = allel2.sequence_diversity(pos, ac, start=1, stop=31)
     >>> pi
-    0.13978494623655915
+    np.float64(0.13978494623655915)
 
     """
 
@@ -345,7 +345,7 @@ def sequence_divergence(pos, ac1, ac2, an1=None, an2=None, start=None,
         >>> pos = [2, 4, 7, 14, 15, 18, 19, 25, 27]
         >>> dxy = sequence_divergence(pos, ac1, ac2, start=1, stop=31)
         >>> dxy
-        0.12096774193548387
+        np.float64(0.12096774193548387)
 
     """
 
@@ -713,7 +713,7 @@ def watterson_theta(pos, ac, start=None, stop=None,
     >>> pos = [2, 4, 7, 14, 15, 18, 19, 25, 27]
     >>> theta_hat_w = allel2.watterson_theta(pos, ac, start=1, stop=31)
     >>> theta_hat_w
-    0.10557184750733138
+    np.float64(0.10557184750733138)
 
     """
 
@@ -908,10 +908,10 @@ def tajima_d(ac, pos=None, start=None, stop=None, min_sites=3):
     ...                          [[-1, -1], [-1, -1]]])
     >>> ac = g.count_alleles()
     >>> allel2.tajima_d(ac)
-    3.1445848780213814
+    np.float64(3.1445848780213814)
     >>> pos = [2, 4, 7, 14, 15, 18, 19, 25, 27]
     >>> allel2.tajima_d(ac, pos=pos, start=7, stop=25)
-    3.8779735196179366
+    np.float64(3.8779735196179366)
 
     """
 

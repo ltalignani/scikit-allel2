@@ -55,11 +55,14 @@ class ArrayWrapper(object):
     def __len__(self):
         return self.values.shape[0]
 
-    def __array__(self, *args):
-        v = self.values[:]
-        a = np.asanyarray(v)
-        if args:
-            a = a.astype(args[0])
+    def __array__(self, dtype=None, copy=None):
+        # copy=False is not refused when a copy is needed: NumPy 2.0 passes it when
+        # assigning into an array, where any copy is acceptable
+        a = np.asanyarray(self.values[:])
+        if dtype is not None:
+            a = a.astype(dtype, copy=False)
+        if copy:
+            a = a.copy()
         return a
 
     def __eq__(self, other):
@@ -292,12 +295,19 @@ class DisplayableArray(ArrayWrapper):
         return self.to_html()
 
 
+def _repr_item(i):
+    # show 2 rather than NumPy 2's np.int32(2)
+    if isinstance(i, np.generic):
+        i = i.item()
+    return repr(i)
+
+
 # noinspection PyAbstractClass
 class DisplayAs1D(DisplayableArray):
 
     def str_items(self):
         # can be overridden in sub-class to provide custom display behaviour
-        return [repr(i) for i in self]
+        return [_repr_item(i) for i in self]
 
     def get_display_items(self, threshold=10, edgeitems=5):
 
@@ -348,7 +358,7 @@ class DisplayAs2D(DisplayableArray):
 
     def str_items(self):
         # can be overridden in sub-class to provide custom display behaviour
-        return [[repr(i) for i in row] for row in self]
+        return [[_repr_item(i) for i in row] for row in self]
 
     def get_display_items(self, row_threshold, col_threshold, row_edgeitems, col_edgeitems):
 

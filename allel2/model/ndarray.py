@@ -289,7 +289,7 @@ class Genotypes(NumpyArrayWrapper):
         0/1 1/1
         0/2 ./.
         >>> g.count_called()
-        5
+        np.int64(5)
         >>> g.count_alleles()
         <AlleleCountsArray shape=(3, 3) dtype=int32>
         3 1 0
@@ -309,7 +309,7 @@ class Genotypes(NumpyArrayWrapper):
         0/1 ./.
         0/2 ./.
         >>> g.count_called()
-        3
+        np.int64(3)
         >>> g.count_alleles()
         <AlleleCountsArray shape=(3, 3) dtype=int32>
         1 1 0
@@ -1024,33 +1024,28 @@ class Genotypes(NumpyArrayWrapper):
         ...                          [[1, 2], [2, 1]],
         ...                          [[2, 2], [-1, -1]]])
         >>> g.to_gt()
-        chararray([[b'0/0', b'0/1'],
+        array([[b'0/0', b'0/1'],
                [b'0/2', b'1/1'],
                [b'1/2', b'2/1'],
-               [b'2/2', b'./.']],
-              dtype='|S3')
+               [b'2/2', b'./.']], dtype='|S3')
         >>> v = g[:, 0]
         >>> v
         <GenotypeVector shape=(4, 2) dtype=int64>
         0/0 0/2 1/2 2/2
         >>> v.to_gt()
-        chararray([b'0/0', b'0/2', b'1/2', b'2/2'],
-              dtype='|S3')
+        array([b'0/0', b'0/2', b'1/2', b'2/2'], dtype='|S3')
         >>> g.is_phased = np.ones(g.shape[:-1])
         >>> g.to_gt()
-        chararray([[b'0|0', b'0|1'],
+        array([[b'0|0', b'0|1'],
                [b'0|2', b'1|1'],
                [b'1|2', b'2|1'],
-               [b'2|2', b'.|.'],
-               [b'./.', b'./.']],
-              dtype='|S3')
+               [b'2|2', b'.|.']], dtype='|S3')
         >>> v = g[:, 0]
         >>> v
         <GenotypeVector shape=(4, 2) dtype=int64>
         0|0 0|2 1|2 2|2
         >>> v.to_gt()
-        chararray([b'0|0', b'0|2', b'1|2', b'2|2'],
-              dtype='|S3')
+        array([b'0|0', b'0|2', b'1|2', b'2|2'], dtype='|S3')
 
         """
 
@@ -1770,8 +1765,8 @@ class GenotypeArray(Genotypes, DisplayAs2D):
         ...                          [[0, 0], [-1, -1]]], dtype='i1')
         >>> m = g.to_sparse(format='csr')
         >>> m
-        <4x4 sparse matrix of type '<class 'numpy.int8'>'
-            with 6 stored elements in Compressed Sparse Row format>
+        <Compressed Sparse Row sparse matrix of dtype 'int8'
+            with 6 stored elements and shape (4, 4)>
         >>> m.data
         array([ 1,  1,  1,  1, -1, -1], dtype=int8)
         >>> m.indices
@@ -2064,7 +2059,7 @@ class HaplotypeArray(NumpyArrayWrapper, DisplayAs2D):
     obtained by indexing the first and second dimensions, e.g.::
 
         >>> h[1, 0]
-        0
+        np.int8(0)
 
     View haplotypes as diploid genotypes::
 
@@ -2377,8 +2372,8 @@ class HaplotypeArray(NumpyArrayWrapper, DisplayAs2D):
         ...                           [0, 0, -1, -1]], dtype='i1')
         >>> m = h.to_sparse(format='csr')
         >>> m
-        <4x4 sparse matrix of type '<class 'numpy.int8'>'
-            with 6 stored elements in Compressed Sparse Row format>
+        <Compressed Sparse Row sparse matrix of dtype 'int8'
+            with 6 stored elements and shape (4, 4)>
         >>> m.data
         array([ 1,  1,  1,  1, -1, -1], dtype=int8)
         >>> m.indices
@@ -3225,7 +3220,7 @@ class GenotypeAlleleCounts(NumpyArrayWrapper):
         nchar = int(np.floor(np.log10(max_count))) + 1
 
         # convert to string
-        a = self.astype((np.bytes_, nchar)).view(np.chararray)
+        a = self.astype((np.bytes_, nchar))
 
         # determine allele count separator
         sep = b":"
@@ -3233,7 +3228,8 @@ class GenotypeAlleleCounts(NumpyArrayWrapper):
         # join via separator
         gt = a[..., 0]
         for i in range(1, self.shape[-1]):
-            gt = gt + sep + a[..., i]
+            gt = np.char.add(gt, sep)
+            gt = np.char.add(gt, a[..., i])
 
         return gt
 
@@ -3525,7 +3521,7 @@ class SortedIndex(NumpyArrayWrapper, DisplayAs1D):
     >>> idx.shape
     (11,)
     >>> idx.is_unique
-    False
+    np.False_
 
     See Also
     --------
@@ -4522,7 +4518,7 @@ class ChromPosIndex(DisplayAs1D):
                 loc_chrom = np.nonzero(self.chrom == chrom)[0]
                 if len(loc_chrom) == 0:
                     raise KeyError(chrom)
-                slice_chrom = slice(min(loc_chrom), max(loc_chrom) + 1)
+                slice_chrom = slice(int(loc_chrom[0]), int(loc_chrom[-1]) + 1)
                 # cache the result
                 self.chrom_ranges[chrom] = slice_chrom
                 return slice_chrom
@@ -4620,11 +4616,11 @@ class VariantTable(NumpyRecArrayWrapper):
     Instantiate a table from existing data::
 
         >>> import allel2
-        >>> records = [[b'chr1', 2, 35, 4.5, (1, 2)],
-        ...            [b'chr1', 7, 12, 6.7, (3, 4)],
-        ...            [b'chr2', 3, 78, 1.2, (5, 6)],
-        ...            [b'chr2', 9, 22, 4.4, (7, 8)],
-        ...            [b'chr3', 6, 99, 2.8, (9, 10)]]
+        >>> records = [(b'chr1', 2, 35, 4.5, (1, 2)),
+        ...            (b'chr1', 7, 12, 6.7, (3, 4)),
+        ...            (b'chr2', 3, 78, 1.2, (5, 6)),
+        ...            (b'chr2', 9, 22, 4.4, (7, 8)),
+        ...            (b'chr3', 6, 99, 2.8, (9, 10))]
         >>> dtype = [('CHROM', 'S4'),
         ...          ('POS', 'u4'),
         ...          ('DP', int),
@@ -4651,7 +4647,7 @@ class VariantTable(NumpyRecArrayWrapper):
     Access a row::
 
         >>> vt[2]
-        (b'chr2', 3, 78, 1.2, [5, 6])
+        np.record((b'chr2', 3, 78, 1.2, [5, 6]), dtype=...)
 
     Access multiple rows::
 

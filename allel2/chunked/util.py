@@ -186,32 +186,25 @@ def get_cbytes(data):
         return None
 
 
+def _zarr_compressor(data):
+    # the first codec compressing a zarr array, None if it is not compressed
+    compressors = data.compressors
+    return compressors[0] if compressors else None
+
+
 def get_compression(data):
     if hasattr(data, 'cparams'):
         return 'blosc'
     elif hasattr(data, 'compression'):
         return data.compression
-    else:
-        # zarr compatibility: try compressor but handle zarr 3.0 errors
-        try:
-            if hasattr(data, 'compressor'):
-                compressor = data.compressor
-                if compressor is not None:
-                    return getattr(compressor, 'codec_id', str(compressor))
+    elif hasattr(data, 'compressors'):
+        compressor = _zarr_compressor(data)
+        if compressor is None:
             return None
-        except (TypeError, AttributeError):
-            # zarr 3.0+ fallback: check compressors
-            try:
-                if hasattr(data, 'compressors'):
-                    compressors = getattr(data, 'compressors', None)
-                    if compressors:
-                        # Try to get first compressor info
-                        if hasattr(compressors, '__iter__') and len(compressors) > 0:
-                            return str(compressors[0])
-                        return str(compressors)
-                return None
-            except:
-                return None
+        # numcodecs codecs (zarr format 2) have an id, zarr.codecs (format 3) a name
+        return getattr(compressor, 'codec_id', None) or compressor.to_dict()['name']
+    else:
+        return None
 
 
 def get_compression_opts(data):
@@ -219,20 +212,17 @@ def get_compression_opts(data):
         return data.cparams
     elif hasattr(data, 'compression_opts'):
         return data.compression_opts
+    elif hasattr(data, 'compressors'):
+        compressor = _zarr_compressor(data)
+        if compressor is None:
+            return None
+        if hasattr(compressor, 'get_config'):
+            config = compressor.get_config()
+            del config['id']
+            return config
+        return compressor.to_dict()['configuration']
     else:
-        # zarr compatibility: try compressor but handle zarr 3.0 errors
-        try:
-            if hasattr(data, 'compressor'):
-                compressor = data.compressor
-                if compressor is not None:
-                    config = compressor.get_config()
-                    if 'id' in config:
-                        del config['id']
-                    return config
-            return None
-        except (TypeError, AttributeError):
-            # zarr 3.0+ fallback: no compression opts available
-            return None
+        return None
 
 
 def get_shuffle(data):

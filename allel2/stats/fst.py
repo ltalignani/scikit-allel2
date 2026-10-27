@@ -96,7 +96,7 @@ def weir_cockerham_fst(g, subpops, max_allele=None, blen=None):
 
         >>> fst = np.sum(a) / (np.sum(a) + np.sum(b) + np.sum(c))
         >>> fst
-        -4.36809058868914e-17
+        np.float64(-4.36809058868914e-17)
 
     Note that estimated Fst values may be negative.
 
@@ -295,7 +295,7 @@ def hudson_fst(ac1, ac2, fill=np.nan):
 
         >>> fst = np.sum(num) / np.sum(den)
         >>> fst
-        0.1428571428571429
+        np.float64(0.1428571428571429)
 
     """  # flake8: noqa
 
