@@ -811,7 +811,36 @@ def _h5like_handle_overwrite(root, keys, overwrite):
                                  'replace' % k)
 
 
-def _zarr_setup_datasets(chunk, root, chunk_length, chunk_width, compressor, overwrite,
+_blosc_shuffle_names = {0: 'noshuffle', 1: 'shuffle', 2: 'bitshuffle'}
+
+
+def _zarr_compressors(compressor, zarr_format):
+    """Translate the `compressor` argument of :func:`vcf_to_zarr` into the
+    `compressors` argument of :meth:`zarr.Group.create_array`."""
+    import zarr.codecs
+    from zarr.abc.codec import BytesBytesCodec
+    from numcodecs import Blosc, Zstd
+
+    if compressor is None or zarr_format == 2:
+        # zarr format 2 stores numcodecs codecs as they are
+        return compressor
+    if isinstance(compressor, BytesBytesCodec):
+        return compressor
+    if isinstance(compressor, Blosc):
+        return zarr.codecs.BloscCodec(
+            cname=compressor.cname, clevel=compressor.clevel,
+            # AUTOSHUFFLE (-1) lets zarr choose from the data type
+            shuffle=_blosc_shuffle_names.get(compressor.shuffle),
+            blocksize=compressor.blocksize)
+    if isinstance(compressor, Zstd):
+        return zarr.codecs.ZstdCodec(level=compressor.level,
+                                     checksum=getattr(compressor, 'checksum', False))
+    raise ValueError(
+        'compressor %r cannot be used with zarr format %s; use a codec from '
+        'zarr.codecs, numcodecs.Blosc or numcodecs.Zstd' % (compressor, zarr_format))
+
+
+def _zarr_setup_datasets(chunk, root, chunk_length, chunk_width, compressors, overwrite,
                          headers):
 
     # handle no input
@@ -843,19 +872,8 @@ def _zarr_setup_datasets(chunk, root, chunk_length, chunk_width, compressor, ove
             dtype = 'str'
         else:
             dtype = data.dtype
-        # zarr 3.0 compatibility: handle compressor parameter
-        try:
-            ds = root.create_array(k, shape=shape, chunks=chunk_shape, dtype=dtype,
-                                   compressor=compressor, overwrite=overwrite)
-        except (TypeError, ValueError):
-            # zarr 3.0+ uses different compressor API
-            if compressor == 'default' or compressor is None:
-                ds = root.create_array(k, shape=shape, chunks=chunk_shape, dtype=dtype,
-                                       overwrite=overwrite)
-            else:
-                # zarr 3.0 doesn't accept numcodecs directly in create_array
-                ds = root.create_array(k, shape=shape, chunks=chunk_shape, dtype=dtype,
-                                       overwrite=overwrite)
+        ds = root.create_array(k, shape=shape, chunks=chunk_shape, dtype=dtype,
+                               compressors=compressors, overwrite=overwrite)
 
         # copy metadata from VCF headers
         _h5like_copy_metadata(k, headers, ds)
@@ -906,9 +924,13 @@ def vcf_to_zarr(input, output,
         {output}
     group : string
         Group within destination Zarr hierarchy to store data in.
-    compressor : compressor
-        Compression algorithm, e.g., `{{'id': 'blosc', 'cname': 'zstd', 'clevel':
-     1, 'shuffle': 1}}`.
+    compressor : codec, dict or None, optional
+        Compression codec. Defaults to Blosc with LZ4, level 5 and byte shuffle.
+        Accepts a codec from :mod:`zarr.codecs`, a :class:`numcodecs.Blosc` or
+        :class:`numcodecs.Zstd` codec (translated to their :mod:`zarr.codecs`
+        equivalents), a numcodecs configuration such as `{{'id': 'blosc', 'cname':
+        'zstd', 'clevel': 1, 'shuffle': 1}}`, or a dict of :class:`numcodecs.Blosc`
+        arguments. Any other codec raises a ValueError. None disables compression.
     overwrite : bool
         {overwrite}
     fields : list of strings, optional
@@ -945,6 +967,7 @@ def vcf_to_zarr(input, output,
     """
 
     import zarr
+    import numcodecs
     from numcodecs import Blosc
 
     # samples requested?
@@ -962,7 +985,11 @@ def vcf_to_zarr(input, output,
     if compressor == 'default':
         compressor = Blosc(cname='lz4', clevel=5, shuffle=Blosc.SHUFFLE)
     elif isinstance(compressor, dict):
-        compressor = Blosc(**compressor)
+        if 'id' in compressor:
+            # numcodecs codec configuration
+            compressor = numcodecs.get_codec(compressor)
+        else:
+            compressor = Blosc(**compressor)
 
     # handle field renaming
     if rename_fields:
@@ -1005,32 +1032,24 @@ def vcf_to_zarr(input, output,
         os.makedirs(output)
     root = zarr.open_group(output, mode='a', path=group)
 
+    # check the compressor before writing anything
+    compressors = _zarr_compressors(compressor, root.metadata.zarr_format)
+
     if samples.shape[0] > 0 and store_samples:
-        # store samples
+        # store samples, uncompressed
         if samples.dtype.kind in 'OT':
             dtype = 'str'
         else:
             dtype = samples.dtype
-        # zarr 3.0 compatibility: use the same approach as _zarr_setup_datasets
-        try:
-            # Try the original zarr 2.x approach first
-            root.create_array('samples', data=samples, shape=samples.shape, dtype=dtype,
-                              compressor=None, overwrite=overwrite)
-        except (ValueError, TypeError) as e:
-            # zarr 3.0+ compatibility: create array without data, then assign
-            if samples.dtype.kind in 'OT':
-                zarr_dtype = 'str'
-            else:
-                zarr_dtype = samples.dtype
-            ds = root.create_array('samples', shape=samples.shape, dtype=zarr_dtype,
-                                   compressor=None, overwrite=overwrite)
-            ds[:] = samples
+        ds = root.create_array('samples', shape=samples.shape, dtype=dtype,
+                               compressors=None, overwrite=overwrite)
+        ds[:] = samples
 
     # setup datasets
     # noinspection PyTypeChecker
     keys = _zarr_setup_datasets(
         chunk, root=root, chunk_length=chunk_length, chunk_width=chunk_width,
-        compressor=compressor, overwrite=overwrite, headers=headers
+        compressors=compressors, overwrite=overwrite, headers=headers
     )
 
     # store first chunk

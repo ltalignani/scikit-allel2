@@ -2434,6 +2434,90 @@ def test_vcf_to_zarr_ann():
             compare_zarr_arrays(expected[key], actual[key][:])
 
 
+def zarr_compressors(arr):
+    # normalise codec descriptions across zarr 3.x versions (enums vs strings)
+    def norm(v):
+        return getattr(v, 'value', v)
+    out = []
+    for c in arr.compressors:
+        if isinstance(c, zarr.codecs.BloscCodec):
+            out.append(('blosc', norm(c.cname), c.clevel, norm(c.shuffle)))
+        elif isinstance(c, zarr.codecs.ZstdCodec):
+            out.append(('zstd', c.level))
+        else:
+            out.append((type(c).__name__,))
+    return out
+
+
+def test_vcf_to_zarr_compressor_default():
+    vcf_path = fixture_path('sample.vcf')
+    zarr_path = os.path.join(tempdir, 'compressor.zarr')
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+    vcf_to_zarr(vcf_path, zarr_path, fields='*', alt_number=2, chunk_length=2)
+    callset = zarr.open_group(zarr_path, mode='r')
+    for key in ['variants/POS', 'variants/CHROM', 'variants/ALT', 'calldata/GT']:
+        assert [('blosc', 'lz4', 5, 'shuffle')] == zarr_compressors(callset[key])
+
+
+def _vcf_to_zarr_compressors(**kwargs):
+    vcf_path = fixture_path('sample.vcf')
+    zarr_path = os.path.join(tempdir, 'compressor.zarr')
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+    vcf_to_zarr(vcf_path, zarr_path, fields=['POS', 'CHROM', 'GT'], chunk_length=2,
+                **kwargs)
+    callset = zarr.open_group(zarr_path, mode='r')
+    return {key: zarr_compressors(callset[key])
+            for key in ['variants/POS', 'variants/CHROM', 'calldata/GT']}
+
+
+def test_vcf_to_zarr_compressor_none():
+    for compressors in _vcf_to_zarr_compressors(compressor=None).values():
+        assert [] == compressors
+
+
+def test_vcf_to_zarr_compressor_numcodecs():
+    from numcodecs import Blosc, Zstd
+    compressor = Blosc(cname='zstd', clevel=1, shuffle=Blosc.BITSHUFFLE)
+    for compressors in _vcf_to_zarr_compressors(compressor=compressor).values():
+        assert [('blosc', 'zstd', 1, 'bitshuffle')] == compressors
+    for compressors in _vcf_to_zarr_compressors(compressor=Zstd(level=7)).values():
+        assert [('zstd', 7)] == compressors
+    # a dict is passed to numcodecs.Blosc, as in scikit-allel
+    compressor = dict(cname='zlib', clevel=2, shuffle=Blosc.NOSHUFFLE)
+    for compressors in _vcf_to_zarr_compressors(compressor=compressor).values():
+        assert [('blosc', 'zlib', 2, 'noshuffle')] == compressors
+    # a numcodecs codec configuration, as shown in the docstring
+    compressor = {'id': 'zstd', 'level': 4}
+    for compressors in _vcf_to_zarr_compressors(compressor=compressor).values():
+        assert [('zstd', 4)] == compressors
+
+
+def test_vcf_to_zarr_compressor_zarr_codec():
+    compressor = zarr.codecs.ZstdCodec(level=2)
+    for compressors in _vcf_to_zarr_compressors(compressor=compressor).values():
+        assert [('zstd', 2)] == compressors
+
+
+def test_vcf_to_zarr_compressor_untranslatable():
+    from numcodecs import LZMA
+    vcf_path = fixture_path('sample.vcf')
+    zarr_path = os.path.join(tempdir, 'compressor.zarr')
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+    with pytest.raises(ValueError, match='cannot be used with zarr format 3'):
+        vcf_to_zarr(vcf_path, zarr_path, fields='*', compressor=LZMA())
+    # fail before writing any array, including samples
+    assert [] == list(zarr.open_group(zarr_path, mode='r').array_keys())
+
+
+def test_vcf_to_zarr_no_compressor_deprecation_warning():
+    with warnings.catch_warnings():
+        warnings.filterwarnings('error', message='.*compressor.*deprecated')
+        _vcf_to_zarr_compressors()
+
+
 def test_vcf_to_zarr_empty():
     vcf_path = fixture_path('empty.vcf')
     zarr_path = os.path.join(tempdir, 'empty.zarr')
