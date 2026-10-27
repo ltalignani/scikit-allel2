@@ -833,8 +833,7 @@ def _zarr_compressors(compressor, zarr_format):
             shuffle=_blosc_shuffle_names.get(compressor.shuffle),
             blocksize=compressor.blocksize)
     if isinstance(compressor, Zstd):
-        return zarr.codecs.ZstdCodec(level=compressor.level,
-                                     checksum=getattr(compressor, 'checksum', False))
+        return zarr.codecs.ZstdCodec(level=compressor.level, checksum=compressor.checksum)
     raise ValueError(
         'compressor %r cannot be used with zarr format %s; use a codec from '
         'zarr.codecs, numcodecs.Blosc or numcodecs.Zstd' % (compressor, zarr_format))

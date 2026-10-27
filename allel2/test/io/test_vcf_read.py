@@ -2512,7 +2512,7 @@ def test_vcf_to_zarr_compressor_untranslatable():
     assert [] == list(zarr.open_group(zarr_path, mode='r').array_keys())
 
 
-def test_vcf_to_zarr_no_compressor_deprecation_warning():
+def test_vcf_to_zarr_default_compressor_no_deprecation_warning():
     with warnings.catch_warnings():
         warnings.filterwarnings('error', message='.*compressor.*deprecated')
         _vcf_to_zarr_compressors()
