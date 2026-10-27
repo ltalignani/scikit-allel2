@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import unittest
+import warnings
 import numpy as np
 import h5py
 import zarr
@@ -9,7 +10,7 @@ import pytest
 from allel2 import GenotypeArray, HaplotypeArray, AlleleCountsArray, VariantTable, \
     GenotypeVector, GenotypeAlleleCountsArray, GenotypeAlleleCountsVector
 from allel2 import GenotypeChunkedArray, HaplotypeChunkedArray, AlleleCountsChunkedArray, \
-    VariantChunkedTable, GenotypeAlleleCountsChunkedArray
+    VariantChunkedTable, GenotypeAlleleCountsChunkedArray, AlleleCountsChunkedTable
 from allel2.test.tools import assert_array_equal as aeq
 from allel2.test.model.test_api import GenotypeArrayInterface, \
     diploid_genotype_data, triploid_genotype_data, HaplotypeArrayInterface, \
@@ -19,6 +20,10 @@ from allel2.test.model.test_api import GenotypeArrayInterface, \
     diploid_genotype_ac_data, triploid_genotype_ac_data
 from allel2 import chunked
 from allel2.chunked.storage_zarr import ZarrTable
+
+
+# the suite still exercises chunked, which is deprecated
+pytestmark = pytest.mark.filterwarnings('ignore:allel2.chunked is deprecated:DeprecationWarning')
 
 
 class GenotypeChunkedArrayTests(GenotypeArrayInterface, unittest.TestCase):
@@ -661,3 +666,70 @@ def test_numpy_indexing_unchanged():
     a[0] = np.array(7)
     from allel2.model.generic import _index_values
     assert isinstance(_index_values(a, 0), np.ndarray)
+
+
+@pytest.mark.parametrize('cls, data, equivalent', [
+    (GenotypeChunkedArray, np.array(diploid_genotype_data, dtype='i1'), 'GenotypeDaskArray'),
+    (HaplotypeChunkedArray, np.array(haplotype_data, dtype='i1'), 'HaplotypeDaskArray'),
+    (AlleleCountsChunkedArray, np.array(allele_counts_data, dtype='i4'),
+     'AlleleCountsDaskArray'),
+    (GenotypeAlleleCountsChunkedArray, np.array(diploid_genotype_ac_data, dtype='i1'),
+     'GenotypeAlleleCountsDaskArray'),
+    (VariantChunkedTable, np.array(variant_table_data, dtype=variant_table_dtype),
+     'VariantTable'),
+    (AlleleCountsChunkedTable, {'pop1': np.array(allele_counts_data, dtype='i4')},
+     'AlleleCountsDaskArray'),
+])
+def test_chunked_classes_deprecated(cls, data, equivalent):
+    with pytest.warns(DeprecationWarning, match='scikit-allel2 3.0') as record:
+        cls(data)
+    message = str(record[-1].message)
+    assert cls.__name__ in message
+    assert equivalent in message
+    if cls in (VariantChunkedTable, AlleleCountsChunkedTable):
+        assert 'dask.dataframe' in message
+
+
+def test_chunked_functions_deprecated():
+    with pytest.warns(DeprecationWarning, match='scikit-allel2 3.0') as record:
+        chunked.copy(np.arange(10))
+    assert 'allel2.chunked.copy' in str(record[-1].message)
+
+
+def test_chunked_warning_points_at_caller():
+    # one warning per construction or function call in user code, attributed to it
+    g = np.array(diploid_genotype_data, dtype='i1')
+    for call in [lambda: chunked.copy(g), lambda: GenotypeChunkedArray(g)]:
+        with pytest.warns(DeprecationWarning) as record:
+            call()
+        assert 1 == len(record)
+        assert __file__ == record[0].filename
+
+
+def test_chunked_methods_silent():
+    # the user was warned when constructing; allel2 internals never warn again
+    with pytest.warns(DeprecationWarning):
+        gc = GenotypeChunkedArray(np.array(diploid_genotype_data, dtype='i1'))
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        gc.compress([True, False, True, False, True], axis=0)
+        gc.take([0, 1], axis=0)
+        gc.subset([0, 1], [0, 1])
+        gc.concatenate([gc])
+        gc.count_alleles()
+        gc.to_haplotypes()
+
+
+def test_chunked_table_functions_point_to_tables():
+    with pytest.warns(DeprecationWarning, match='dask.dataframe') as record:
+        chunked.copy_table({'a': np.arange(3)})
+    assert 'dask.array' not in str(record[0].message)
+
+
+def test_import_allel2_is_silent():
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, '-W', 'error', '-c', 'import allel2'],
+                            capture_output=True, text=True)
+    assert 0 == result.returncode, result.stderr
+    assert '' == result.stderr

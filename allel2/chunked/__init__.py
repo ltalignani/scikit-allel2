@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa
 """
+This module is deprecated and will be removed in scikit-allel2 3.0, see
+:doc:`/migrating_chunked`.
+
 This module provides an abstraction layer over generic chunked array storage
 libraries. Currently HDF5 (via `h5py <http://www.h5py.org/>`_) and
 `zarr <http://zarr.readthedocs.io>`_ are supported.
