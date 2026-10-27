@@ -13,6 +13,7 @@ from collections import namedtuple, defaultdict
 import warnings
 import time
 import subprocess
+import tempfile
 import textwrap
 from collections import OrderedDict
 
@@ -1117,6 +1118,49 @@ vcf_to_zarr.__doc__ = vcf_to_zarr.__doc__.format(
 )
 
 
+class _TabixStream:
+    """Standard output of a running tabix process, read by FileInputStream.
+
+    Messages printed by tabix are kept out of the VCF stream and relayed as
+    warnings; closing the stream waits for the process.
+    """
+
+    def __init__(self, tabix, input, region):
+        # a file rather than a pipe, so that tabix never blocks on its stderr
+        self._err = tempfile.TemporaryFile()
+        self._relayed = 0
+        self._process = subprocess.Popen([tabix, '-h', input, region],
+                                         stdout=subprocess.PIPE, stderr=self._err)
+        # wait for the first output, or for tabix to exit without output
+        if not self._process.stdout.peek(1) and self._process.wait() != 0:
+            message = self._read_messages()
+            self.close()
+            raise RuntimeError(message)
+        self._relay_messages()
+
+    def _read_messages(self):
+        self._err.seek(self._relayed)
+        text = self._err.read()
+        self._relayed += len(text)
+        return str(text, 'utf-8', 'replace').strip()
+
+    def _relay_messages(self):
+        for message in self._read_messages().splitlines():
+            if message.strip():
+                warnings.warn('tabix: ' + message.strip())
+
+    def readinto(self, b):
+        return self._process.stdout.readinto(b)
+
+    def close(self):
+        if self._err.closed:
+            return
+        self._process.stdout.close()
+        self._process.wait()
+        self._relay_messages()
+        self._err.close()
+
+
 # noinspection PyShadowingBuiltins
 def _setup_input_stream(input, region=None, tabix=None, buffer_size=DEFAULT_BUFFER_SIZE):
 
@@ -1128,20 +1172,7 @@ def _setup_input_stream(input, region=None, tabix=None, buffer_size=DEFAULT_BUFF
 
             try:
                 # try tabix
-                p = subprocess.Popen([tabix, '-h', input, region],
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT,
-                                     bufsize=0)
-
-                # check if tabix exited early, look for tabix error
-                time.sleep(.5)
-                poll = p.poll()
-                if poll is not None and poll > 0:
-                    err = p.stdout.read()
-                    err = str(err, 'ascii')
-                    p.stdout.close()
-                    raise RuntimeError(err.strip())
-                fileobj = p.stdout
+                fileobj = _TabixStream(tabix, input, region)
                 close = True
                 # N.B., still pass the region parameter through so we get strictly only
                 # variants that start within the requested region. See also
