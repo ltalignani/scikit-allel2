@@ -1,6 +1,65 @@
 Release notes
 =============
 
+.. _release_2.0.0:
+
+v2.0.0
+------
+
+First release of scikit-allel2, which continues scikit-allel for Python 3.12+,
+NumPy 2, zarr 3 and pandas 3. The package is imported as ``allel2``; use
+``import allel2 as allel`` in existing code. See :doc:`migrating`.
+
+Breaking changes
+~~~~~~~~~~~~~~~~
+
+* Python 3.12 or later is required, with NumPy 2.0 or later and, when used,
+  zarr 3.1 or later and pandas 3.0 or later. Windows is no longer supported.
+  :issue:`ltalignani/scikit-allel2#26`.
+
+* :func:`allel2.read_vcf` and the functions built on it return string fields,
+  including fields of type ``String`` and ``Character``, as NumPy's
+  ``StringDType`` instead of ``object`` (``S1`` for ``Character``).
+  :func:`allel2.vcf_to_dataframe` returns string columns with pandas' ``str``
+  dtype. :issue:`ltalignani/scikit-allel2#27`.
+
+* :func:`allel2.vcf_to_zarr` writes zarr format 3 by default, which
+  zarr-python 2 cannot read; pass ``zarr_format=2`` to write zarr format 2.
+  :issue:`ltalignani/scikit-allel2#29`.
+
+* Index lookups such as :meth:`allel2.ChromPosIndex.locate_key` return slices
+  of Python ``int`` instead of NumPy integers.
+  :issue:`ltalignani/scikit-allel2#33`.
+
+* :meth:`allel2.GenotypeAlleleCountsArray.to_gt` returns a NumPy array
+  instead of a ``chararray``, which NumPy 2.5 removed.
+  :issue:`ltalignani/scikit-allel2#33`.
+
+Deprecations
+~~~~~~~~~~~~
+
+* :mod:`allel2.chunked` and the chunked array classes are deprecated and will
+  be removed in scikit-allel2 3.0; use the Dask classes instead. See
+  :doc:`migrating_chunked`. :issue:`ltalignani/scikit-allel2#32`.
+
+Fixes
+~~~~~
+
+* :func:`allel2.vcf_to_zarr` applies the requested compressor.
+  :issue:`ltalignani/scikit-allel2#28`.
+
+* :func:`allel2.read_vcf` with ``region=``: messages written by tabix no longer
+  corrupt the VCF stream. :issue:`ltalignani/scikit-allel2#41`.
+
+* Compatibility with zarr 3: Dask arrays and chunked arrays work on zarr 3
+  stores. :issue:`ltalignani/scikit-allel2#30`,
+  :issue:`ltalignani/scikit-allel2#31`.
+
+* Compatibility with NumPy 2 and pandas 3: no deprecation warnings, and
+  documentation examples updated for NumPy 2 output.
+  :issue:`ltalignani/scikit-allel2#33`.
+
+
 .. _release_1.3.3:
 
 v1.3.3

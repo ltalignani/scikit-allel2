@@ -1,21 +1,22 @@
 .. module:: allel2
 
 scikit-allel2 - Explore and analyse genetic variation
-====================================================
+=====================================================
 
 This package provides utilities for exploratory analysis of large
 scale genetic variation data. It is based on numpy_, scipy_ and other
 general-purpose Python scientific libraries.
 
-* Source: https://github.com/cggh/scikit-allel2
-* Documentation: http://scikit-allel2.readthedocs.org/
-* Download: https://pypi.python.org/pypi/scikit-allel2
-* Mailing list: https://groups.google.com/forum/#!forum/scikit-allel2
+scikit-allel2 continues `scikit-allel <https://github.com/cggh/scikit-allel>`_
+for Python 3.12+, NumPy 2, zarr 3 and pandas 3. If you are coming from
+scikit-allel, see :doc:`migrating`.
 
-Please feel free to ask questions via the `mailing list <https://groups.google.com/forum/#!forum/scikit-allel2>`_.
+* Source: https://github.com/ltalignani/scikit-allel2
+* Documentation: https://scikit-allel2.readthedocs.io/
+* Download: https://pypi.org/project/scikit-allel2/
 
 If you find a bug or would like to suggest a feature, please `raise an issue
-on GitHub <https://github.com/cggh/scikit-allel2/issues/new>`_.
+on GitHub <https://github.com/ltalignani/scikit-allel2/issues/new>`_.
 
 This site provides reference documentation for `scikit-allel2`. For
 worked examples with real data, see the following articles:
@@ -31,10 +32,11 @@ worked examples with real data, see the following articles:
 
     <a href="http://alimanfoo.github.io/2015/09/21/estimating-fst.html">Estimating F<sub>ST</sub></a>
 
-If you would like to cite `scikit-allel2` please use the DOI below.
+If you would like to cite `scikit-allel2`, please cite scikit-allel using the
+DOI below.
 
-.. image:: https://zenodo.org/badge/7890/cggh/scikit-allel2.svg
-   :target: https://zenodo.org/badge/latestdoi/7890/cggh/scikit-allel2
+.. image:: https://zenodo.org/badge/7890/cggh/scikit-allel.svg
+   :target: https://zenodo.org/badge/latestdoi/7890/cggh/scikit-allel
 
 Why "scikit-allel"?
 -------------------
@@ -53,15 +55,8 @@ such as the different nucleotides observed at a single nucleotide polymorphism
 Installation
 ------------
 
-Pre-built binaries are available for Windows, Mac and Linux, and can
-be installed via conda::
-
-    $ conda install -c conda-forge scikit-allel2
-
-This will install scikit-allel2 and all dependencies.
-
-Alternatively, if you have a C compiler on your system, `scikit-allel2`
-can be installed via pip::
+`scikit-allel2` requires Python 3.12 or later, on Linux or macOS (Windows
+is not supported). It can be installed via pip::
 
     $ pip install scikit-allel2
 
@@ -98,6 +93,7 @@ Contents
     stats
     io
     chunked
+    migrating
     migrating_chunked
     util
     release

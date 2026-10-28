@@ -92,7 +92,6 @@ HaplotypeArray
     .. automethod:: distinct_frequencies
     .. automethod:: compress
     .. automethod:: take
-    .. automethod:: subset
     .. automethod:: concatenate
 
 
@@ -134,6 +133,7 @@ GenotypeAlleleCountsArray
     .. autoattribute:: n_samples
     .. autoattribute:: n_alleles
     .. automethod:: count_alleles
+    .. automethod:: to_gt
     .. automethod:: subset
 
 GenotypeAlleleCountsVector
