@@ -4,7 +4,7 @@ Migrating from scikit-allel
 scikit-allel2 continues scikit-allel for Python 3.12+, NumPy 2, zarr 3 and
 pandas 3. The functions and classes are the same; this page lists what you
 need to change in your code. The :ref:`release notes <release_2.0.0>` list
-every change.
+every change in 2.0.0.
 
 Requirements
 ------------

@@ -31,7 +31,7 @@ Breaking changes
   of Python ``int`` instead of NumPy integers.
   :issue:`ltalignani/scikit-allel2#33`.
 
-* :meth:`allel2.GenotypeAlleleCountsArray.to_gt` returns a NumPy array
+* ``GenotypeAlleleCountsArray.to_gt()`` returns a NumPy array
   instead of a ``chararray``, which NumPy 2.5 removed.
   :issue:`ltalignani/scikit-allel2#33`.
 

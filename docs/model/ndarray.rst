@@ -133,7 +133,6 @@ GenotypeAlleleCountsArray
     .. autoattribute:: n_samples
     .. autoattribute:: n_alleles
     .. automethod:: count_alleles
-    .. automethod:: to_gt
     .. automethod:: subset
 
 GenotypeAlleleCountsVector
