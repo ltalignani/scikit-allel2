@@ -22,10 +22,6 @@ from allel2 import chunked
 from allel2.chunked.storage_zarr import ZarrTable
 
 
-# the suite still exercises chunked, which is deprecated
-pytestmark = pytest.mark.filterwarnings('ignore:allel2.chunked is deprecated:DeprecationWarning')
-
-
 class GenotypeChunkedArrayTests(GenotypeArrayInterface, unittest.TestCase):
 
     _class = GenotypeChunkedArray
@@ -733,3 +729,43 @@ def test_import_allel2_is_silent():
                             capture_output=True, text=True)
     assert 0 == result.returncode, result.stderr
     assert '' == result.stderr
+
+
+def test_zarr_storage_compression_display():
+    # zarr 3 describes compression with codecs, no longer with a single compressor
+    z = chunked.zarrmem_storage.array(np.arange(100))
+    assert 'zstd' == chunked.get_compression(z)
+    assert 'level' in chunked.get_compression_opts(z)
+    assert 'compression=zstd' in repr(chunked.ChunkedArrayWrapper(z))
+    z = zarr.create_array(zarr.storage.MemoryStore(), data=np.arange(100), compressors=None)
+    assert chunked.get_compression(z) is None
+    assert chunked.get_compression_opts(z) is None
+
+
+def test_zarr_table_with_strings_display():
+    # zarr 3 stores strings as StringDType, which structured dtypes cannot hold
+    t = chunked.zarrmem_storage.table({'CHROM': np.array([b'chr1', b'chr2'], dtype=object),
+                                       'POS': np.array([2, 7])})
+    with pytest.warns(DeprecationWarning):
+        vt = VariantChunkedTable(t)
+    assert np.dtype([('CHROM', 'O'), ('POS', '<i8')]) == vt.dtype
+    assert 'VariantChunkedTable shape=(2,)' in repr(vt)
+    # rows hold scalars, not 0-d arrays
+    assert ('chr1', 2) == tuple(vt[0])
+    assert isinstance(vt[0].POS, np.integer)
+
+
+def test_array_protocol_copy():
+    # NumPy 2 protocol: copy=False refuses when data must be loaded or converted
+    data = np.array(diploid_genotype_data, dtype='i1')
+    g = GenotypeArray(data)
+    assert np.shares_memory(data, np.asarray(g, copy=False))
+    assert not np.shares_memory(data, np.asarray(g, copy=True))
+    with pytest.raises(ValueError):
+        np.asarray(g, dtype='i4', copy=False)
+    assert 'int32' == np.asarray(g, dtype='i4').dtype
+    with pytest.warns(DeprecationWarning):
+        gc = GenotypeChunkedArray(chunked.copy(data))
+    aeq(data, np.asarray(gc))
+    with pytest.raises(ValueError):
+        np.asarray(gc, copy=False)

@@ -3,6 +3,20 @@
 import numpy as np
 
 
+def array_protocol(data, loaded, dtype=None, copy=None):
+    """Implement NumPy's __array__ protocol for `data`, which is a copy if it had to
+    be `loaded` (e.g., from zarr or HDF5): copy=False then raises, as NumPy expects."""
+    a = np.asanyarray(data)
+    converted = dtype is not None and a.dtype != np.dtype(dtype)
+    if copy is False and (loaded or converted):
+        raise ValueError('a copy is needed to convert to a NumPy array')
+    if converted:
+        a = a.astype(dtype)
+    elif copy and not loaded:
+        a = a.copy()
+    return a
+
+
 class ArrayWrapper(object):
     """Abstract base class that delegates to a wrapped array-like object."""
 
@@ -55,12 +69,9 @@ class ArrayWrapper(object):
     def __len__(self):
         return self.values.shape[0]
 
-    def __array__(self, *args):
-        v = self.values[:]
-        a = np.asanyarray(v)
-        if args:
-            a = a.astype(args[0])
-        return a
+    def __array__(self, dtype=None, copy=None):
+        return array_protocol(self.values[:], not isinstance(self.values, np.ndarray),
+                              dtype, copy)
 
     def __eq__(self, other):
         if isinstance(other, ArrayWrapper):
@@ -292,12 +303,21 @@ class DisplayableArray(ArrayWrapper):
         return self.to_html()
 
 
+def _repr_item(i):
+    # show 2 rather than NumPy 2's np.int32(2), and float32 values as written
+    if isinstance(i, (np.number, np.bool_, np.datetime64, np.timedelta64)):
+        return str(i)
+    if isinstance(i, np.generic):
+        i = i.item()
+    return repr(i)
+
+
 # noinspection PyAbstractClass
 class DisplayAs1D(DisplayableArray):
 
     def str_items(self):
         # can be overridden in sub-class to provide custom display behaviour
-        return [repr(i) for i in self]
+        return [_repr_item(i) for i in self]
 
     def get_display_items(self, threshold=10, edgeitems=5):
 
@@ -348,7 +368,7 @@ class DisplayAs2D(DisplayableArray):
 
     def str_items(self):
         # can be overridden in sub-class to provide custom display behaviour
-        return [[repr(i) for i in row] for row in self]
+        return [[_repr_item(i) for i in row] for row in self]
 
     def get_display_items(self, row_threshold, col_threshold, row_edgeitems, col_edgeitems):
 

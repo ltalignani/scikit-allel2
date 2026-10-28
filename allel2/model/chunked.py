@@ -98,11 +98,12 @@ class GenotypeChunkedArray(ChunkedArrayWrapper, DisplayAs2D):
     directly via the `storage` keyword argument. E.g.::
 
         >>> g.copy()
-        <GenotypeChunkedArray shape=(3, 2, 2) dtype=int8 chunks=(3, 2, 2)
+        <GenotypeChunkedArray shape=(3, 2, 2) dtype=int8 chunks=...
            ...
         >>> g.copy(storage='hdf5mem_zlib1')
-        <GenotypeChunkedArray shape=(3, 2, 2) dtype=int8 chunks=(3, 2, 2)
+        <GenotypeChunkedArray shape=(3, 2, 2) dtype=int8 chunks=...
            ...
+        >>> callset.close()
 
     """  # flake8: noqa
 
@@ -768,7 +769,7 @@ class VariantChunkedTable(ChunkedTableWrapper):
     Obtain a single row::
 
         >>> vt[0]
-        row(CHROM=b'chr1', POS=2, AC=array([1, 2]), QD=4.5, DP=35)
+        row(CHROM=b'chr1', POS=np.int64(2), AC=array([1, 2]), QD=np.float64(4.5), DP=np.int64(35))
 
     Obtain a numpy array by slicing::
 

@@ -520,3 +520,13 @@ class GenotypeAlleleCountsArrayTests(GenotypeAlleleCountsArrayInterface, unittes
         g = GenotypeAlleleCountsArray(diploid_genotype_ac_data, dtype='i1')
         g2 = pickle.loads(pickle.dumps(g))
         aeq(g, g2)
+
+
+def test_genotype_allele_counts_to_gt_and_display():
+    # to_gt no longer relies on np.chararray, removed from the NumPy 2.5 namespace
+    g = GenotypeAlleleCountsArray([[[2, 0, 0], [1, 1, 0]],
+                                   [[0, 0, 2], [0, 0, 0]]])
+    gt = g.to_gt()
+    assert type(gt) is np.ndarray
+    aeq(np.array([[b'2:0:0', b'1:1:0'], [b'0:0:2', b'0:0:0']]), gt)
+    assert '2:0:0 1:1:0' in repr(g)
