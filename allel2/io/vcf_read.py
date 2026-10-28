@@ -161,8 +161,8 @@ _doc_param_input = \
         compressed file. May also be a file-like object (e.g., `io.BytesIO`)."""
 
 _doc_param_fields = \
-    """Fields to extract data for. Should be a list of strings, e.g., ``['variants/CHROM',
-        'variants/POS', 'variants/DP', 'calldata/GT']``. If you are feeling lazy,
+    """Fields to extract data for. Should be a list of strings, e.g.,
+        ``['variants/CHROM', 'variants/POS', 'variants/DP', 'calldata/GT']``. If you are feeling lazy,
         you can drop the 'variants/' and 'calldata/' prefixes, in which case the fields
         will be matched against fields declared in the VCF header, with variants taking
         priority over calldata if a field with the same ID exists both in INFO and
@@ -188,8 +188,8 @@ _doc_param_types = \
 
 _doc_param_numbers = \
     """Override the expected number of values. Should be a dictionary mapping field names
-        to integers. E.g., providing the dictionary ``{'variants/ALT': 5,
-        'variants/AC': 5, 'calldata/HQ': 2}`` will mean that, for each variant, 5 values
+        to integers. E.g., providing the dictionary
+        ``{'variants/ALT': 5, 'variants/AC': 5, 'calldata/HQ': 2}`` will mean that, for each variant, 5 values
         are stored for the 'variants/ALT' field, 5 values are stored for the
         'variants/AC' field, and for each sample, 2 values are stored for the
         'calldata/HQ' field."""

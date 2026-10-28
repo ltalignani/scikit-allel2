@@ -62,7 +62,8 @@ extensions = ['sphinx.ext.intersphinx',
               'sphinx_issues',
               ]
 
-issues_github_path = 'cggh/scikit-allel2'
+# release notes before 2.0.0 refer to scikit-allel issues
+issues_github_path = 'cggh/scikit-allel'
 
 
 # Add any paths that contain templates here, relative to this directory.

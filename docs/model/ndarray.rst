@@ -92,7 +92,6 @@ HaplotypeArray
     .. automethod:: distinct_frequencies
     .. automethod:: compress
     .. automethod:: take
-    .. automethod:: subset
     .. automethod:: concatenate
 
 

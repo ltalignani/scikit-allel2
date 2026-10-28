@@ -60,6 +60,8 @@ docs = [
     "mock",
     "sphinx",
     "sphinx-issues",
+    # allel2.chunked imports zarr
+    "zarr>=3.1",
 ]
 
 [project.urls]
