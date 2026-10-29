@@ -29,6 +29,7 @@ var/
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+.python-version
 
 # Installer logs
 pip-log.txt
@@ -74,6 +75,10 @@ allel2/version.py
 .vscode
 
 # Claude Code local settings
+CLAUDE.md
+GEMINI.md
+.claude/
 .claude/settings.local.json
 .claude/worktrees/
 .venv/
+uv.lock
