@@ -83,7 +83,7 @@ version_file = "allel2/version.py"
 build = "cp312-* cp313-* cp314-*"
 skip = "*-musllinux_*"
 # each wheel is installed in a clean environment and reads a test VCF
-test-command = "python {project}/ci/smoke_test.py"
+test-command = "python {project}/ci/smoke_wheel.py"
 
 [tool.cibuildwheel.linux]
 # x86_64 and aarch64 are each built on a native runner

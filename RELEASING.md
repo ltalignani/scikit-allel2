@@ -11,7 +11,9 @@ wheel, then waits for approval before publishing:
 | final release | `v2.0.0` | PyPI |
 
 1. **Release notes.** On `master`, the section for the version in
-   `docs/release.rst` is complete and merged.
+   `docs/release.rst` is complete and merged. For a final release, the
+   classifier in `pyproject.toml` is `Development Status :: 5 - Production/Stable`
+   (`4 - Beta` for pre-releases).
 
 2. **Tag.**
 

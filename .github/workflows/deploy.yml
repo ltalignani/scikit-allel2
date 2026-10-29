@@ -45,6 +45,7 @@ jobs:
         with:
           name: dist-wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
+          if-no-files-found: error
 
   build_sdist:
     name: Source distribution
@@ -69,6 +70,7 @@ jobs:
         with:
           name: dist-sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
 
   check:
     name: Check versions and choose the index
@@ -95,7 +97,9 @@ jobs:
         run: |
           python -m pip install packaging
           ls dist
-          echo "index=$(python ci/check_dist.py "$GITHUB_REF_NAME" dist)" >> "$GITHUB_OUTPUT"
+          # on its own line, so that a failed check fails the step
+          index=$(python ci/check_dist.py "$GITHUB_REF_NAME" dist)
+          echo "index=$index" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish to ${{ needs.check.outputs.index }}
