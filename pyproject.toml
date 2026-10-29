@@ -17,6 +17,9 @@ license = "MIT"
 authors = [
     { name = "Alistair Miles", email = "alistair.miles@sanger.ac.uk" },
 ]
+maintainers = [
+    { name = "Loïc Talignani", email = "loic.talignani@ird.fr" },
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -33,6 +36,7 @@ classifiers = [
 dependencies = [
     "numpy>=2.0",
     "dask[array]",
+    "zarr>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +50,6 @@ optional = [
     "h5py",
     "numexpr",
     "numcodecs",
-    "zarr>=3.1",
     "hmmlearn",
 ]
 test = [
@@ -60,8 +63,6 @@ docs = [
     "mock",
     "sphinx",
     "sphinx-issues",
-    # allel2.chunked imports zarr
-    "zarr>=3.1",
 ]
 
 [project.urls]
@@ -74,3 +75,17 @@ include = ["allel2*"]
 
 [tool.setuptools_scm]
 version_file = "allel2/version.py"
+
+[tool.cibuildwheel]
+# CPython 3.12-3.14 (no free-threading), manylinux only (no musl)
+build = "cp312-* cp313-* cp314-*"
+skip = "*-musllinux_*"
+# each wheel is installed in a clean environment and reads a test VCF
+test-command = "python {project}/ci/smoke_wheel.py"
+
+[tool.cibuildwheel.linux]
+# x86_64 and aarch64 are each built on a native runner
+archs = ["native"]
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]

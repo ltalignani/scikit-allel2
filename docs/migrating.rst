@@ -9,8 +9,8 @@ every change in 2.0.0.
 Requirements
 ------------
 
-scikit-allel2 needs Python 3.12 or later, NumPy 2.0 or later and, when you
-use them, zarr 3.1 or later and pandas 3.0 or later. It runs on Linux and
+scikit-allel2 needs Python 3.12 or later, NumPy 2.0 or later, zarr 3.1 or
+later and, when you use it, pandas 3.0 or later. It runs on Linux and
 macOS; Windows is not supported.
 
 Imports
