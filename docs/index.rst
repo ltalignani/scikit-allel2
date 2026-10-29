@@ -60,13 +60,13 @@ is not supported). It can be installed via pip::
 
     $ pip install scikit-allel2
 
-This will install `scikit-allel2` along with minimal dependencies
-(numpy_, cython_ and dask_). Some features of `scikit-allel2` require
+This will install `scikit-allel2` along with its required dependencies
+(numpy_, dask_ and zarr_). Some features of `scikit-allel2` require
 optional third-party packages to be installed, including scipy_,
-matplotlib_, seaborn_, pandas_, scikit-learn_, h5py_ and zarr_. To
+matplotlib_, seaborn_, pandas_, scikit-learn_ and h5py_. To
 install `scikit-allel2` with all optional dependencies via pip, do::
 
-    $ pip install scikit-allel2[full]
+    $ pip install scikit-allel2[optional]
 
 If you have never installed Python before, you might find the
 following article useful: `Installing Python for data analysis

@@ -13,8 +13,8 @@ NumPy 2, zarr 3 and pandas 3. The package is imported as ``allel2``; use
 Breaking changes
 ~~~~~~~~~~~~~~~~
 
-* Python 3.12 or later is required, with NumPy 2.0 or later and, when used,
-  zarr 3.1 or later and pandas 3.0 or later. Windows is no longer supported.
+* Python 3.12 or later is required, with NumPy 2.0 or later, zarr 3.1 or
+  later (now a required dependency) and, when used, pandas 3.0 or later. Windows is no longer supported.
   :issue:`ltalignani/scikit-allel2#26`.
 
 * :func:`allel2.read_vcf` and the functions built on it return string fields,
