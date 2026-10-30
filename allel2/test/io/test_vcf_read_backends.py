@@ -72,16 +72,17 @@ FIELDS = [
     ['calldata/GT', 'POS'],
 ]
 
-GT_OPTIONS = [
-    {},
-    {'types': {'calldata/GT': 'i2'}},
-    {'types': {'calldata/GT': 'u1'}},
-    {'types': {'calldata/GT': 'genotype/u8'}},
-    {'numbers': {'calldata/GT': 1}},
-    {'numbers': {'calldata/GT': 3}},
-    {'fills': {'calldata/GT': -9}},
-    {'types': {'calldata/GT': 'u2'}, 'fills': {'calldata/GT': 7}},
-]
+GT_OPTIONS = (
+    [{'types': {'calldata/GT': t}}
+     for t in ('i1', 'i2', 'i4', 'i8', 'u1', 'u2', 'u4', 'u8')] +
+    [{},
+     {'types': {'calldata/GT': 'genotype/u8'}},
+     {'numbers': {'calldata/GT': 1}},
+     {'numbers': {'calldata/GT': 3}},
+     {'fills': {'calldata/GT': -9}},
+     {'types': {'calldata/GT': 'u2'}, 'fills': {'calldata/GT': 7}},
+     {'alt_number': 1}]
+)
 
 
 @pytest.fixture

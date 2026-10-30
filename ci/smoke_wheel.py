@@ -8,6 +8,7 @@ import importlib.resources
 import logging
 
 import allel2
+import allel2.opt.io_vcf_read_rs  # noqa: F401
 
 version = allel2.__version__
 # setuptools-scm falls back to 0.1.devN when it cannot see any tag

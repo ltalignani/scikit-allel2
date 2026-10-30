@@ -111,6 +111,7 @@ impl State {
     }
 }
 
+#[derive(Clone)]
 struct GtSpec {
     dtype: String,
     number: usize,
@@ -129,6 +130,7 @@ struct Chunk<T> {
 
 #[pyclass(module = "allel2.opt.io_vcf_read_rs")]
 struct VCFChunkIterator {
+    // PyO3 classes must be Sync; the lock is never contended
     reader: Mutex<Box<dyn BufRead + Send>>,
     chunk_length: usize,
     samples: Vec<String>,
@@ -198,7 +200,7 @@ impl VCFChunkIterator {
             last_pos: 0,
             warnings: Vec::new(),
         };
-        let reader = self.reader.get_mut().unwrap();
+        let reader = self.reader.get_mut().unwrap_or_else(|e| e.into_inner());
         let mut line = Vec::new();
         while chunk.length < self.chunk_length {
             let terminated = match read_line(reader.as_mut(), &mut line)? {
@@ -211,14 +213,14 @@ impl VCFChunkIterator {
                 }
                 Some(t) => t,
             };
-            let end = if terminated { State::Eol } else { State::Eof };
+            let line_end = if terminated { State::Eol } else { State::Eof };
             if self.gt.is_some() {
                 chunk.gt.resize(chunk.gt.len() + width, fill);
             }
             let gt_offset = chunk.gt.len() - width;
             let pos = parse_line(
                 &line,
-                end,
+                line_end,
                 self.variant_index,
                 &self.samples,
                 &self.loc_samples,
@@ -282,7 +284,7 @@ impl VCFChunkIterator {
 #[allow(clippy::too_many_arguments)]
 fn parse_line<T: Allele>(
     line: &[u8],
-    end: State,
+    line_end: State,
     previous_variant: i64,
     samples: &[String],
     loc_samples: &[bool],
@@ -300,7 +302,7 @@ fn parse_line<T: Allele>(
     chrom.extend_from_slice(chrom_field);
     let mut ctx = Context { variant_index: previous_variant, chrom: b"", pos: 0 };
     if chrom_field.is_empty() {
-        let state = if has_tab { State::Chrom } else { end };
+        let state = if has_tab { State::Chrom } else { line_end };
         warnings.push(ctx.message("empty CHROM", state));
     }
     chrom.push(0);
@@ -311,7 +313,7 @@ fn parse_line<T: Allele>(
     if has_tab {
         let rest = &line[chrom_field.len() + 1..];
         let pos_field = columns.next().unwrap_or(b"");
-        let state = if memchr(b'\t', rest).is_some() { State::Pos } else { end };
+        let state = if memchr(b'\t', rest).is_some() { State::Pos } else { line_end };
         if pos_field.is_empty() {
             warnings.push(ctx.message("empty POS", state));
         } else {
@@ -438,20 +440,35 @@ fn fill_value<T: Allele>(fill: Option<i128>, dtype: &str) -> PyResult<T> {
     }
 }
 
-macro_rules! dispatch_dtype {
-    ($self:ident, $py:ident, $dtype:expr, $fill:expr) => {
-        match $dtype {
-            "int8" => $self.next_chunk::<i8>($py, fill_value($fill, $dtype)?),
-            "int16" => $self.next_chunk::<i16>($py, fill_value($fill, $dtype)?),
-            "int32" => $self.next_chunk::<i32>($py, fill_value($fill, $dtype)?),
-            "int64" => $self.next_chunk::<i64>($py, fill_value($fill, $dtype)?),
-            "uint8" => $self.next_chunk::<u8>($py, fill_value($fill, $dtype)?),
-            "uint16" => $self.next_chunk::<u16>($py, fill_value($fill, $dtype)?),
-            "uint32" => $self.next_chunk::<u32>($py, fill_value($fill, $dtype)?),
-            "uint64" => $self.next_chunk::<u64>($py, fill_value($fill, $dtype)?),
+/// Call `$f::<T>($args.., fill)` with `T` the genotype dtype of `$gt`.
+macro_rules! with_gt_dtype {
+    ($gt:expr, $f:ident($($arg:expr),*)) => {{
+        let g: &GtSpec = $gt;
+        match g.dtype.as_str() {
+            "int8" => $f::<i8>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "int16" => $f::<i16>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "int32" => $f::<i32>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "int64" => $f::<i64>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "uint8" => $f::<u8>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "uint16" => $f::<u16>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "uint32" => $f::<u32>($($arg,)* fill_value(g.fill, &g.dtype)?),
+            "uint64" => $f::<u64>($($arg,)* fill_value(g.fill, &g.dtype)?),
             other => Err(PyValueError::new_err(format!("unsupported genotype dtype: {other}"))),
         }
-    };
+    }};
+}
+
+fn accept_fill<T: Allele>(_fill: T) -> PyResult<()> {
+    Ok(())
+}
+
+fn check_gt(g: &GtSpec) -> PyResult<()> {
+    with_gt_dtype!(g, accept_fill())
+}
+
+fn next_chunk_for<'py, T: Allele>(it: &mut VCFChunkIterator, py: Python<'py>, fill: T)
+                                  -> PyResult<Option<Bound<'py, PyAny>>> {
+    it.next_chunk(py, fill)
 }
 
 #[pymethods]
@@ -473,17 +490,7 @@ impl VCFChunkIterator {
         let gt = gt.map(|(dtype, number, fill)| GtSpec { dtype, number, fill });
         if let Some(g) = &gt {
             // fail early on an unsupported dtype or a fill out of range
-            match g.dtype.as_str() {
-                "int8" => fill_value::<i8>(g.fill, &g.dtype).map(|_| ()),
-                "int16" => fill_value::<i16>(g.fill, &g.dtype).map(|_| ()),
-                "int32" => fill_value::<i32>(g.fill, &g.dtype).map(|_| ()),
-                "int64" => fill_value::<i64>(g.fill, &g.dtype).map(|_| ()),
-                "uint8" => fill_value::<u8>(g.fill, &g.dtype).map(|_| ()),
-                "uint16" => fill_value::<u16>(g.fill, &g.dtype).map(|_| ()),
-                "uint32" => fill_value::<u32>(g.fill, &g.dtype).map(|_| ()),
-                "uint64" => fill_value::<u64>(g.fill, &g.dtype).map(|_| ()),
-                other => Err(PyValueError::new_err(format!("unsupported genotype dtype: {other}"))),
-            }?;
+            check_gt(g)?;
             if g.number == 0 {
                 return Err(PyValueError::new_err("genotype number must be positive"));
             }
@@ -523,13 +530,9 @@ impl VCFChunkIterator {
         if self.eof {
             return Ok(None);
         }
-        match &self.gt {
+        match self.gt.clone() {
             None => self.next_chunk::<i8>(py, -1),
-            Some(g) => {
-                let dtype = g.dtype.clone();
-                let fill = g.fill;
-                dispatch_dtype!(self, py, dtype.as_str(), fill)
-            }
+            Some(g) => with_gt_dtype!(&g, next_chunk_for(self, py)),
         }
     }
 }
