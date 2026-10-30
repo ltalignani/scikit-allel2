@@ -38,9 +38,18 @@ wheel, then waits for approval before publishing:
    python -c "import allel2; print(allel2.__version__)"
    ```
 
-5. **Check the documentation.** ReadTheDocs builds the tag; after a final
-   release, https://scikit-allel2.readthedocs.io/en/stable/ shows the new
-   version.
+5. **Release candidates: publish to PyPI.** Once a release candidate checks
+   out on TestPyPI, publish the same files to PyPI, so that users can test it
+   with `pip install --pre scikit-allel2`: in the Actions tab, *Deploy*,
+   *Run workflow*, choose the tag (`v2.0.0rc1`, not a branch) under *Use
+   workflow from*, run, then approve the `pypi` environment. The workflow
+   downloads the files from TestPyPI and checks their hashes and version; it
+   does not rebuild them.
+
+6. **Check the documentation.** ReadTheDocs builds the tag. Its `stable`
+   version follows the highest final release tag: after the first final
+   release, reactivate `stable` (ReadTheDocs, *Versions*), then check that
+   https://scikit-allel2.readthedocs.io/en/stable/ shows the new version.
 
 A version cannot be uploaded twice to the same index: if a publication fails
 after the upload, fix the problem and tag the next version (`rc2`, `dev2`).
