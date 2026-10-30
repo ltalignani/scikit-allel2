@@ -1,0 +1,22 @@
+[package]
+name = "allel2-io-vcf-read"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "io_vcf_read_rs"
+crate-type = ["cdylib"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+# the default (strip debuginfo) runs Xcode's strip, whose output macOS 27
+# refuses to load ("mis-aligned LINKEDIT string pool")
+strip = false
+
+[dependencies]
+flate2 = "1.1"
+numpy = "0.30"
+pyo3 = { version = "0.30", features = ["extension-module"] }

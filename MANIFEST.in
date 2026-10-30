@@ -8,6 +8,10 @@ prune docs/_build
 
 graft allel2
 
+include rust/io_vcf_read/Cargo.toml
+include rust/io_vcf_read/Cargo.lock
+graft rust/io_vcf_read/src
+
 global-exclude *.so
 global-exclude *.pyd
 global-exclude *.pyc

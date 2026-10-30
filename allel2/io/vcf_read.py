@@ -7,6 +7,7 @@ and loading into NumPy arrays, NumPy files, HDF5 files or Zarr array stores.
 
 """
 import gzip
+import logging
 import os
 import re
 from collections import namedtuple, defaultdict
@@ -22,6 +23,7 @@ import numpy as np
 
 
 from allel2.opt.io_vcf_read import VCFChunkIterator, FileInputStream
+from allel2.opt.io_vcf_read_rs import VCFChunkIterator as RustVCFChunkIterator
 # expose some names from cython extension
 # noinspection PyUnresolvedReferences
 from allel2.opt.io_vcf_read import (  # noqa: F401
@@ -45,6 +47,16 @@ FIELD_NUMALT = 'numalt'
 FIELD_ALTLEN = 'altlen'
 FIELD_IS_SNP = 'is_snp'
 COMPUTED_FIELDS = [FIELD_NUMALT, FIELD_ALTLEN, FIELD_IS_SNP]
+
+
+logger = logging.getLogger(__name__)
+
+# environment variable choosing the VCF parser, while the Cython one exists
+BACKEND_VARIABLE = 'ALLEL2_BACKEND'
+BACKENDS = ('rust', 'cython')
+
+# genotype dtypes handled by the Rust parser
+_RUST_GENOTYPE_DTYPES = {np.dtype(t) for t in ('i1', 'i2', 'i4', 'i8', 'u1', 'u2', 'u4', 'u8')}
 
 
 def _prep_fields_param(fields):
@@ -1272,12 +1284,18 @@ def iter_vcf_chunks(input,
                 numbers=numbers, alt_number=alt_number, chunk_length=chunk_length,
                 fills=fills, samples=samples, region=region)
 
+    # choose the parser: Rust unless the input needs the Cython one
+    reason = _cython_input_reason(input, region, transformers)
+    if reason is not None:
+        _log_fallback(input, reason)
+
     # setup input stream
     stream = _setup_input_stream(input=input, region=region, tabix=tabix,
                                  buffer_size=buffer_size)
 
     # setup iterator
-    fields, samples, headers, it = _iter_vcf_stream(stream, **kwds)
+    rust_path = input if reason is None else None
+    fields, samples, headers, it = _iter_vcf_stream(stream, rust_path=rust_path, **kwds)
 
     # setup transformers
     if transformers is not None:
@@ -1787,8 +1805,76 @@ def _normalize_samples(samples, headers, types):
     return normed_samples, loc_samples
 
 
+def _backend():
+    backend = os.environ.get(BACKEND_VARIABLE, 'rust')
+    if backend not in BACKENDS:
+        raise ValueError('%s must be one of %s, found %r'
+                         % (BACKEND_VARIABLE, ', '.join(map(repr, BACKENDS)), backend))
+    return backend
+
+
+def _log_fallback(input, reason):
+    logger.debug('reading %r: falling back to the Cython VCF parser (%s)', input, reason)
+
+
+# noinspection PyShadowingBuiltins
+def _cython_input_reason(input, region, transformers):
+    """Why `input` must be read by the Cython parser, or None if the Rust parser
+    can read it."""
+    if _backend() == 'cython':
+        return '%s=cython' % BACKEND_VARIABLE
+    if transformers is not None:
+        return 'transformers are not handled by the Rust parser'
+    if not isinstance(input, str):
+        return 'file objects are not handled by the Rust parser'
+    if region is not None:
+        return 'regions are not yet handled by the Rust parser'
+    return None
+
+
+def _rust_genotype_dtype(t):
+    """The dtype of genotypes of type `t` (a dtype or 'genotype/<dtype>') if the
+    Rust parser handles it, else None."""
+    if isinstance(t, str):
+        if not t.startswith('genotype/'):
+            return None
+        t = t[len('genotype/'):]
+    t = np.dtype(t)
+    return t if t in _RUST_GENOTYPE_DTYPES else None
+
+
+def _cython_fields_reason(fields, types):
+    """Why `fields` must be read by the Cython parser, or None if the Rust
+    parser can read them."""
+    for f in fields:
+        if f == 'variants/POS':
+            continue
+        if f == 'calldata/GT':
+            if _rust_genotype_dtype(types[f]) is None:
+                return ('type %r of field %r is not yet handled by the Rust parser'
+                        % (types[f], f))
+            continue
+        return 'field %r is not yet handled by the Rust parser' % f
+    return None
+
+
+def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
+                 loc_samples):
+    if 'variants/POS' in types and types['variants/POS'] != np.dtype('int32'):
+        # as the Cython parser does
+        warnings.warn('only int32 supported for POS field, ignoring requested type: %r'
+                      % types['variants/POS'])
+    gt = None
+    if 'calldata/GT' in fields:
+        t = _rust_genotype_dtype(types['calldata/GT'])
+        gt = (t.name, numbers['calldata/GT'], fills.get('calldata/GT'))
+    return RustVCFChunkIterator(path, chunk_length=chunk_length, samples=headers.samples,
+                                loc_samples=loc_samples.astype(bool).tolist(),
+                                store_pos='variants/POS' in fields, gt=gt)
+
+
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
-                     chunk_length, fills, region, samples):
+                     chunk_length, fills, region, samples, rust_path=None):
 
     # read VCF headers
     headers = _read_vcf_headers(stream)
@@ -1835,11 +1921,22 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
                     for f, t in types.items()}
 
     # setup chunks iterator
-    chunks = VCFChunkIterator(
-        stream, chunk_length=chunk_length, headers=headers, fields=fields,
-        types=parser_types, numbers=numbers, fills=fills, region=region,
-        loc_samples=loc_samples
-    )
+    if rust_path is not None:
+        reason = _cython_fields_reason(fields, types)
+        if reason is not None:
+            _log_fallback(rust_path, reason)
+            rust_path = None
+    if rust_path is not None:
+        logger.debug('reading %r with the Rust VCF parser', rust_path)
+        chunks = _rust_chunks(rust_path, headers=headers, fields=fields, types=types,
+                              numbers=numbers, fills=fills, chunk_length=chunk_length,
+                              loc_samples=loc_samples)
+    else:
+        chunks = VCFChunkIterator(
+            stream, chunk_length=chunk_length, headers=headers, fields=fields,
+            types=parser_types, numbers=numbers, fills=fills, region=region,
+            loc_samples=loc_samples
+        )
     if string_fields:
         chunks = _chunk_iter_to_string_dtype(
             chunks, {f: np.dtype(types[f]) for f in string_fields})

@@ -4,6 +4,7 @@ requires = [
     "setuptools-scm>=8",
     "cython>=3.1",
     "numpy>=2.0",
+    "setuptools-rust>=1.11",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -86,6 +87,9 @@ test-command = "python {project}/ci/smoke_wheel.py"
 [tool.cibuildwheel.linux]
 # x86_64 and aarch64 are each built on a native runner
 archs = ["native"]
+# the manylinux images have no Rust toolchain (the macOS runners have one)
+before-all = "curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
