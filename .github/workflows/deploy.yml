@@ -1,7 +1,7 @@
 name: Deploy
 
 # A tag v* builds the wheels and the sdist, then publishes them once the
-# maintainer approves: pre-releases (a, b, rc, dev) go to TestPyPI, final
+# maintainer approves: pre-releases (a, b, rc) go to TestPyPI, final
 # releases to PyPI. Pull requests touching the packaging only build and test.
 # Run manually from a pre-release tag, it publishes to PyPI the files already
 # published to TestPyPI for that tag (see RELEASING.md).

@@ -7,7 +7,7 @@ wheel, then waits for approval before publishing:
 
 | Tag | Example | Published to |
 |---|---|---|
-| pre-release (`a`, `b`, `rc`, `dev`) | `v2.0.0rc1` | TestPyPI |
+| pre-release (`a`, `b`, `rc`) | `v2.0.0rc1` | TestPyPI |
 | final release | `v2.0.0` | PyPI |
 
 1. **Release notes.** On `master`, the section for the version in
@@ -52,4 +52,8 @@ wheel, then waits for approval before publishing:
    https://scikit-allel2.readthedocs.io/en/stable/ shows the new version.
 
 A version cannot be uploaded twice to the same index: if a publication fails
-after the upload, fix the problem and tag the next version (`rc2`, `dev2`).
+after the upload, fix the problem and tag the next version (`rc2`).
+
+Use `a`, `b` or `rc` tags for pre-releases, not `.devN`: setuptools-scm cannot
+compute the version of the commits after a `.devN` tag (N > 0), which breaks
+every build on `master` until the tag is deleted.
