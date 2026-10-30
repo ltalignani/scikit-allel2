@@ -1,12 +1,15 @@
 name: Deploy
 
 # A tag v* builds the wheels and the sdist, then publishes them once the
-# maintainer approves: pre-releases (a, b, rc, dev) go to TestPyPI, final
+# maintainer approves: pre-releases (a, b, rc) go to TestPyPI, final
 # releases to PyPI. Pull requests touching the packaging only build and test.
+# Run manually from a pre-release tag, it publishes to PyPI the files already
+# published to TestPyPI for that tag (see RELEASING.md).
 on:
   push:
     tags:
       - v*
+  workflow_dispatch:
   pull_request:
     paths:
       - .github/workflows/deploy.yml
@@ -18,6 +21,7 @@ on:
 jobs:
   build_wheels:
     name: Wheels on ${{ matrix.os }}
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,6 +53,7 @@ jobs:
 
   build_sdist:
     name: Source distribution
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,3 +127,37 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: ${{ needs.check.outputs.index == 'pypi' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
+
+  promote:
+    name: Publish to PyPI the files on TestPyPI
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/scikit-allel2
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Download from TestPyPI and verify the hashes
+        run: |
+          mkdir dist
+          curl -sf "https://test.pypi.org/pypi/scikit-allel2/${GITHUB_REF_NAME#v}/json" \
+            | jq -r '.urls[] | "\(.url) \(.digests.sha256) \(.filename)"' \
+            | while read -r url sha name; do
+                curl -sfL -o "dist/$name" "$url"
+                echo "$sha  dist/$name" | sha256sum -c --quiet
+              done
+          ls dist
+
+      - name: Every file carries the version of the tag
+        run: |
+          python -m pip install packaging
+          python ci/check_dist.py "$GITHUB_REF_NAME" dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
