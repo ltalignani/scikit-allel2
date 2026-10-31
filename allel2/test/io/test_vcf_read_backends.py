@@ -14,7 +14,8 @@ import warnings
 import numpy as np
 import pytest
 
-from allel2.io.vcf_read import iter_vcf_chunks, read_vcf, ANNTransformer
+from allel2.io.vcf_read import (iter_vcf_chunks, read_vcf, read_vcf_headers,
+                                ANNTransformer)
 
 
 DATA = os.path.join(os.path.dirname(__file__), os.pardir, 'data')
@@ -63,13 +64,81 @@ EDGE_CASES = {
     b'2L\t12\t.\tA\tC\t.\t.\t.\tGT\t0/1\t1/1\t1/1\n'
     b'\n'
     b'2L\t14\t.\tA\tC\t.\t.\t.\tGT\t0/1\t1/1\t1/1\n',
+    # line terminators and null bytes, as the Cython parser reads them
+    'lone_cr': HEADER +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\r'
+    b'2L\t15\t.\tA\tC\t2\tPASS\t.\tGT\t0/0\t0|1\t1/.\r\r\n'
+    b'2L\t16\t.\tA\tC\t3\tPASS\t.\tGT\t0/0\t0|1\t1/.\n',
+    'final_cr': HEADER.replace(b'\n', b'\r\n') +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\r\n'
+    b'2L\t15\t.\tA\tC\t2\tPASS\r',
+    'null_byte': HEADER +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\n'
+    b'2L\t1\x005\t.\tA\tC\t2\tPASS\t.\tGT\t0/0\t0|1\t1/.\n'
+    b'2L\t16\t.\tA\tC\t3\tPASS\t.\tGT\t0/0\t0|1\t1/.\n',
+    'null_line': HEADER +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\n'
+    b'\x002L\t16\t.\tA\tC\t3\tPASS\t.\tGT\t0/0\t0|1\t1/.\n',
+    # lines that exercise the fixed columns
+    'qual': HEADER +
+    b'2L\t1\t.\tA\tC\t12.5\t.\t.\tGT\t0/1\t1/1\t1/1\n'
+    b'2L\t2\t.\tA\tC\tabc\t.\t.\tGT\t0/1\t1/1\t1/1\n'
+    b'2L\t3\t.\tA\tC\t12x\t.\t.\tGT\t0/1\t1/1\t1/1\n'
+    b'2L\t4\t.\tA\tC\t 3e2\t.\t.\tGT\t0/1\t1/1\t1/1\n'
+    b'2L\t5\t.\tA\tC\tinf\t.\n'
+    b'2L\t6\t.\tA\tC\t-NaN\n'
+    b'2L\t7\t.\tA\tC\t1e400\t\t.\n'
+    b'2L\t8\t.\tA\tC\t.5\n'
+    b'2L\t9\t.\tA\tC\t0x1.8p3\t.\n'
+    b'2L\t10\t.\tA\tC\t0xg\t.\n'
+    b'2L\t11\t.\tA\tC\tInfinity\t.\n'
+    b'2L\t12\t.\tA\tC\tnan(123)x\t.\n'
+    b'2L\t13\t.\tA\tC\t1e\t.\n'
+    b'2L\t14\t.\tA\tC\t-.\t.\n'
+    b'2L\t15\t.\tA\tC\t1.e-3x',
+    'filter': HEADER +
+    b'2L\t1\t.\tA\tC\t.\tPASS\t.\n'
+    b'2L\t2\t.\tA\tC\t.\tq10;s50\t.\n'
+    b'2L\t3\t.\tA\tC\t.\ts50,q10:PASS\t.\n'
+    b'2L\t4\t.\tA\tC\t.\t.PASS\t.\n'
+    b'2L\t5\t.\tA\tC\t.\t;;q10;\t.\n'
+    b'2L\t6\t.\tA\tC\t.\tPASSq10\t.\n'
+    b'2L\t7\t.\tA\tC\t.\t\t.\n'
+    b'2L\t8\t.\tA\tC\t.\tq10\n'
+    b'2L\t9\t.\tA\tC\t.\n',
+    'alleles': HEADER +
+    b'2L\t1\tid1\tA\tC,G,T,AC\t.\t.\t.\n'
+    b'2L\t2\tid2;id3\tAT\tA,*\t.\t.\t.\n'
+    b'2L\t3\t.\tA\t.\t.\t.\t.\n'
+    b'2L\t4\t.\tA\t.,C\t.\t.\t.\n'
+    b'2L\t5\t.\tA\t\t.\t.\t.\n'
+    b'2L\t6\t.\tA.\tC\t.\t.\t.\n'
+    b'2L\t7\t.\t.\tC\t.\t.\t.\n'
+    b'2L\t8\t.\tA\tC,,G\t.\t.\t.\n'
+    b'2L\t9\t.\tACGTACGT\tACGTACGTAC,<DEL>\t.\t.\t.\n'
+    b'2L\t10\t.\tA\tC,G\n'
+    b'2L\t11\t.\tA\n'
+    b'2L\t12\tid4\n'
+    b'\xc3\xa9\t13\t\xc3\xa9\t\xc3\xa9\t\xc3\xa9,T\t.\t.\t.\n'
+    b'2L\t14\t.\t\xc3\xa9\tT\t.\t.\t.\n',
 }
+
+FIXED_FIELDS = ['CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER_PASS',
+                'numalt', 'altlen', 'is_snp']
 
 FIELDS = [
     ['variants/POS'],
     ['calldata/GT'],
     ['variants/POS', 'calldata/GT'],
     ['calldata/GT', 'POS'],
+    ['CHROM'],
+    ['ID', 'REF'],
+    ['ALT', 'numalt', 'altlen', 'is_snp'],
+    ['numalt', 'altlen', 'is_snp'],
+    ['QUAL'],
+    ['FILTER_PASS'],
+    None,
+    'filters',
 ]
 
 GT_OPTIONS = (
@@ -99,6 +168,14 @@ def edge_vcf(tmp_path):
             path.write_bytes(data)
         return str(path)
     return write
+
+
+def _fields(path, fields):
+    # 'filters': the fixed and computed fields, and every declared filter
+    if fields == 'filters':
+        filters = ['FILTER_' + f for f in read_vcf_headers(path).filters]
+        return FIXED_FIELDS + filters + ['calldata/GT']
+    return fields
 
 
 def _chunks(path, backend, monkeypatch, caplog, **kwargs):
@@ -142,8 +219,9 @@ def assert_rust_matches_cython(path, monkeypatch, caplog, **kwargs):
 @pytest.mark.parametrize('fields', FIELDS)
 @pytest.mark.parametrize('chunk_length', [1, 2, 3, 2**16])
 def test_test_files(fn, fields, chunk_length, monkeypatch, caplog):
-    assert_rust_matches_cython(os.path.join(DATA, fn), monkeypatch, caplog,
-                               fields=fields, chunk_length=chunk_length)
+    path = os.path.join(DATA, fn)
+    assert_rust_matches_cython(path, monkeypatch, caplog,
+                               fields=_fields(path, fields), chunk_length=chunk_length)
 
 
 @pytest.mark.parametrize('fn', ['sample.vcf', 'test63.vcf', 'test1.vcf', 'test32.vcf'])
@@ -152,6 +230,38 @@ def test_gt_options(fn, options, monkeypatch, caplog):
     assert_rust_matches_cython(os.path.join(DATA, fn), monkeypatch, caplog,
                                fields=['variants/POS', 'calldata/GT'], chunk_length=2,
                                **options)
+
+
+STRING_FIELDS = ['CHROM', 'ID', 'REF', 'ALT']
+
+FIXED_OPTIONS = (
+    [{'types': {f: t for f in STRING_FIELDS}}
+     for t in ('S1', 'S2', 'S20', 'O', 'T', object)] +
+    [{'types': {'REF': 'S4'}},
+     {'types': {'ALT': 'S1'}, 'alt_number': 1},
+     {'alt_number': 1},
+     {'alt_number': 2},
+     {'alt_number': 5},
+     {'numbers': {'ALT': 2}},
+     {'types': {'QUAL': 'f8'}},
+     {'fills': {'QUAL': -1}}]
+)
+
+
+@pytest.mark.parametrize('fn', ['sample.vcf', 'altlen.vcf', 'test32.vcf', 'test16.vcf',
+                                'sample.utf8.vcf'])
+@pytest.mark.parametrize('options', FIXED_OPTIONS)
+def test_fixed_options(fn, options, monkeypatch, caplog):
+    path = os.path.join(DATA, fn)
+    assert_rust_matches_cython(path, monkeypatch, caplog,
+                               fields=_fields(path, 'filters'), chunk_length=2, **options)
+
+
+@pytest.mark.parametrize('options', FIXED_OPTIONS)
+def test_fixed_options_computed_only(options, monkeypatch, caplog):
+    # numalt, altlen and is_snp without ALT nor REF
+    assert_rust_matches_cython(os.path.join(DATA, 'altlen.vcf'), monkeypatch, caplog,
+                               fields=['numalt', 'altlen', 'is_snp'], **options)
 
 
 @pytest.mark.parametrize('samples', [['NA00002'], ['NA00003', 'NA00001'], [], [0, 2]])
@@ -167,6 +277,19 @@ def test_samples(samples, monkeypatch, caplog):
 def test_edge_cases(name, gz, options, edge_vcf, monkeypatch, caplog):
     assert_rust_matches_cython(edge_vcf(name, gz), monkeypatch, caplog,
                                fields=['variants/POS', 'calldata/GT'], chunk_length=2,
+                               **options)
+
+
+EDGE_FILTERS = ['FILTER_q10', 'FILTER_s50', 'FILTER_PASSq10']
+
+
+@pytest.mark.parametrize('name', sorted(EDGE_CASES))
+@pytest.mark.parametrize('gz', [False, True])
+@pytest.mark.parametrize('options', [{}, {'alt_number': 2},
+                                     {'types': {f: 'S2' for f in STRING_FIELDS}}])
+def test_edge_cases_fixed(name, gz, options, edge_vcf, monkeypatch, caplog):
+    assert_rust_matches_cython(edge_vcf(name, gz), monkeypatch, caplog,
+                               fields=FIXED_FIELDS + EDGE_FILTERS, chunk_length=2,
                                **options)
 
 
@@ -243,11 +366,36 @@ def test_fallback_region(monkeypatch, caplog):
     assert 6 == len(callset['variants/POS'])
 
 
+def test_default_fields(monkeypatch, caplog):
+    # read_vcf with its default fields does not fall back
+    callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog)
+    assert RUST in caplog.text
+    assert FALLBACK not in caplog.text
+    assert ['19', '19', '20'] == callset['variants/CHROM'][:3].tolist()
+    assert np.dtypes.StringDType() == callset['variants/ALT'].dtype
+    assert [True, False] == callset['variants/FILTER_PASS'][2:4].tolist()
+
+
+def test_exclude_and_rename_fields(monkeypatch, caplog):
+    path = os.path.join(DATA, 'sample.vcf')
+    kwargs = dict(exclude_fields=['ID', 'QUAL'],
+                  rename_fields={'variants/CHROM': 'variants/chromosome',
+                                 'variants/FILTER_PASS': 'variants/pass'})
+    expected = _read(path, monkeypatch, caplog, backend='cython', **kwargs)
+    actual = _read(path, monkeypatch, caplog, backend='rust', **kwargs)
+    assert RUST in caplog.text
+    assert sorted(expected) == sorted(actual)
+    assert 'variants/chromosome' in actual and 'variants/ID' not in actual
+    for k in expected:
+        assert expected[k].dtype == actual[k].dtype, k
+        np.testing.assert_array_equal(expected[k], actual[k], err_msg=k)
+
+
 @pytest.mark.parametrize('fields, field', [
-    (['POS', 'CHROM'], 'variants/CHROM'),
     (['POS', 'GT', 'GQ'], 'calldata/GQ'),
     (['POS', 'DP'], 'variants/DP'),
-    (None, 'variants/'),
+    # all fields include INFO fields
+    ('*', 'variants/'),
 ])
 def test_fallback_unsupported_field(fields, field, monkeypatch, caplog):
     callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
@@ -256,11 +404,23 @@ def test_fallback_unsupported_field(fields, field, monkeypatch, caplog):
     assert 9 == len(callset['variants/POS'])
 
 
-@pytest.mark.parametrize('types', [{'GT': 'f4'}, {'GT': 'genotype_ac/i1'}])
-def test_fallback_unsupported_type(types, monkeypatch, caplog):
+@pytest.mark.parametrize('types, field', [
+    ({'GT': 'f4'}, 'calldata/GT'),
+    ({'GT': 'genotype_ac/i1'}, 'calldata/GT'),
+    ({'REF': 'S'}, 'variants/REF'),
+])
+def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
     _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
-          fields=['POS', 'GT'], types=types)
-    assert 'calldata/GT' in _reason(caplog)
+          fields=['POS', 'GT', 'CHROM', 'REF'], types=types)
+    assert field in _reason(caplog)
+
+
+def test_fallback_rejected_type(monkeypatch, caplog):
+    # the Cython parser rejects strings that are neither bytes nor objects
+    with pytest.raises(ValueError, match='expected string'):
+        _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
+              fields=['POS', 'CHROM'], types={'CHROM': 'U10'})
+    assert 'variants/CHROM' in _reason(caplog)
 
 
 def test_pos_type_warning(monkeypatch, caplog):
@@ -270,3 +430,30 @@ def test_pos_type_warning(monkeypatch, caplog):
             callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
                             backend=backend, fields=['POS'], types={'POS': 'i8'})
         assert np.dtype('int32') == callset['variants/POS'].dtype
+
+
+def test_qual_type_warning(monkeypatch, caplog):
+    # like the Cython parser, QUAL is always float32
+    for backend in 'cython', 'rust':
+        with pytest.warns(UserWarning, match='only float32 supported for QUAL'):
+            callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
+                            backend=backend, fields=['QUAL'], types={'QUAL': 'f8'})
+        assert np.dtype('float32') == callset['variants/QUAL'].dtype
+
+
+@pytest.mark.parametrize('backend', ['cython', 'rust'])
+def test_invalid_utf8(backend, tmp_path, monkeypatch, caplog):
+    # strings that are not UTF-8 raise the same error with both parsers
+    path = tmp_path / 'bad.vcf'
+    path.write_bytes(HEADER + b'2L\t1\tid\xff\tA\tC\t.\t.\t.\n')
+    with pytest.raises(UnicodeDecodeError):
+        _read(str(path), monkeypatch, caplog, backend=backend, fields=['ID'])
+
+
+@pytest.mark.parametrize('backend', ['cython', 'rust'])
+@pytest.mark.parametrize('fields', [['altlen'], ['altlen', 'ALT']])
+def test_altlen_shape(backend, fields, monkeypatch, caplog):
+    # one ALT value per variant gives a 1-D altlen, with or without ALT
+    callset = _read(os.path.join(DATA, 'altlen.vcf'), monkeypatch, caplog,
+                    backend=backend, fields=fields, alt_number=1)
+    assert 1 == callset['variants/altlen'].ndim

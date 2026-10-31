@@ -1843,11 +1843,34 @@ def _rust_genotype_dtype(t):
     return t if t in _RUST_GENOTYPE_DTYPES else None
 
 
+# fields read by the Rust parser whatever their type: numbers, computed fields
+# (FILTER flags, strings and calldata/GT are checked separately)
+_RUST_FIELDS = ('variants/POS', 'variants/QUAL', 'variants/numalt', 'variants/altlen',
+                'variants/is_snp')
+_RUST_STRING_FIELDS = ('variants/CHROM', 'variants/ID', 'variants/REF', 'variants/ALT')
+
+
+def _rust_string_dtype(t):
+    """The dtype the parser stores strings of type `t` in (object for
+    StringDType, converted afterwards) if the Rust parser handles it, else None."""
+    t = np.dtype(t)
+    if t.kind in 'OT':
+        return np.dtype(object)
+    if t.kind == 'S' and t.itemsize > 0:
+        return t
+    return None
+
+
 def _cython_fields_reason(fields, types):
     """Why `fields` must be read by the Cython parser, or None if the Rust
     parser can read them."""
     for f in fields:
-        if f == 'variants/POS':
+        if f in _RUST_FIELDS or f.startswith('variants/FILTER_'):
+            continue
+        if f in _RUST_STRING_FIELDS:
+            if _rust_string_dtype(types[f]) is None:
+                return ('type %r of field %r is not yet handled by the Rust parser'
+                        % (types[f], f))
             continue
         if f == 'calldata/GT':
             if _rust_genotype_dtype(types[f]) is None:
@@ -1860,17 +1883,22 @@ def _cython_fields_reason(fields, types):
 
 def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
                  loc_samples):
-    if 'variants/POS' in types and types['variants/POS'] != np.dtype('int32'):
-        # as the Cython parser does
-        warnings.warn('only int32 supported for POS field, ignoring requested type: %r'
-                      % types['variants/POS'])
+    # as the Cython parser does
+    for f, t in ('POS', 'int32'), ('QUAL', 'float32'):
+        requested = types.get('variants/' + f)
+        if 'variants/' + f in fields and requested is not None and requested != np.dtype(t):
+            warnings.warn('only %s supported for %s field, ignoring requested type: %r'
+                          % (t, f, requested))
+    string_types = {f: _rust_string_dtype(types[f]).str
+                    for f in fields if f in _RUST_STRING_FIELDS}
     gt = None
     if 'calldata/GT' in fields:
         t = _rust_genotype_dtype(types['calldata/GT'])
         gt = (t.name, numbers['calldata/GT'], fills.get('calldata/GT'))
     return RustVCFChunkIterator(path, chunk_length=chunk_length, samples=headers.samples,
                                 loc_samples=loc_samples.astype(bool).tolist(),
-                                store_pos='variants/POS' in fields, gt=gt)
+                                fields=fields, string_types=string_types,
+                                alt_number=numbers.get('variants/ALT', 1), gt=gt)
 
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
