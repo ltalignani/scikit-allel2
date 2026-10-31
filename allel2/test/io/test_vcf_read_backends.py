@@ -291,12 +291,12 @@ INFO_OPTIONS = (
      {'alt_number': 1},
      {'alt_number': 3},
      {'fills': {'DP': -9, 'AF': -1.5, 'AN': 99, 'AC': 7, 'FS': 2}},
+     {'fills': {'AF': 2.5, 'ABHet': -1, 'AA': 'x', 'DB': 1}},
      {'types': {'DP': 'u1', 'AF': 'f8'}, 'fills': {'DP': 3, 'AF': 0}}]
 )
 
 
-@pytest.mark.parametrize('fn', ['sample.vcf', 'test32.vcf', 'test16.vcf', 'ann.vcf',
-                                'altlen.vcf', 'sample.utf8.vcf'])
+@pytest.mark.parametrize('fn', FILES)
 @pytest.mark.parametrize('options', INFO_OPTIONS)
 def test_info_options(fn, options, monkeypatch, caplog):
     path = os.path.join(DATA, fn)
@@ -506,25 +506,38 @@ def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
     assert field in _reason(caplog)
 
 
-@pytest.mark.parametrize('kwargs', [
-    {'types': {'DP': 'f2'}},
-    {'types': {'DP': 'U3'}},
-    {'types': {'AA': 'S'}},
-    {'types': {'DP': 'c8'}},
-    {'fills': {'DP': 1.5}},
-    {'fills': {'AF': 'x'}},
+@pytest.mark.parametrize('field, kwargs', [
+    ('DP', {'types': {'DP': 'f2'}}),
+    ('DP', {'types': {'DP': 'U3'}}),
+    ('AA', {'types': {'AA': 'S'}}),
+    ('DP', {'types': {'DP': 'c8'}}),
+    ('DP', {'types': {'DP': '>i4'}}),
+    ('AF', {'types': {'AF': '>f8'}}),
+    ('DP', {'fills': {'DP': 1.5}}),
+    ('AF', {'fills': {'AF': 'x'}}),
+    ('DP', {'fills': {'DP': None}}),
+    ('DP', {'numbers': {'DP': -1}}),
 ])
-def test_fallback_info(kwargs, monkeypatch, caplog):
-    # INFO fields that the Rust parser does not cover are read by the Cython one
+def test_fallback_info(field, kwargs, monkeypatch, caplog):
+    # INFO fields that the Rust parser does not cover are read by the Cython
+    # one, which skips some of them and rejects others
+    path = os.path.join(DATA, 'sample.vcf')
+    fields = ['POS', 'DP', 'AF', 'AA']
+    monkeypatch.setenv('ALLEL2_BACKEND', 'cython')
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            read_vcf(path, fields=fields, **kwargs)
+        expected = None
+    except Exception as e:
+        expected = type(e)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        try:
-            _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
-                  fields=['POS', 'DP', 'AF', 'AA'], **kwargs)
-        except (TypeError, ValueError):
-            # the Cython parser may reject the fill
-            pass
-    field = list(list(kwargs.values())[0])[0]
+        if expected is None:
+            _read(path, monkeypatch, caplog, fields=fields, **kwargs)
+        else:
+            with pytest.raises(expected):
+                _read(path, monkeypatch, caplog, fields=fields, **kwargs)
     assert 'variants/' + field in _reason(caplog)
 
 

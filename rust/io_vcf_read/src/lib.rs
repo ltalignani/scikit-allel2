@@ -562,8 +562,8 @@ struct InfoSpec {
     column: Box<dyn InfoColumn>,
 }
 
-/// The fixed columns and computed fields to store.
-struct FixedSpec {
+/// The variants fields to store: fixed columns, computed fields and INFO.
+struct VariantSpec {
     chrom: Option<StrType>,
     id: Option<StrType>,
     ref_: Option<StrType>,
@@ -586,7 +586,7 @@ struct Spec {
     loc_samples: Vec<bool>,
     n_samples_out: usize,
     store_pos: bool,
-    fixed: FixedSpec,
+    fixed: VariantSpec,
     gt: Option<GtSpec>,
 }
 
@@ -604,7 +604,7 @@ struct Chunk<T> {
     qual: Vec<f32>,
     // one flag per filter, variant after variant
     filters: Vec<bool>,
-    // in the order of `FixedSpec::infos`
+    // in the order of `VariantSpec::infos`
     infos: Vec<Box<dyn InfoColumn>>,
     gt: Vec<T>,
     // CHROM of the last variant, null-terminated
@@ -614,7 +614,7 @@ struct Chunk<T> {
 }
 
 impl<T> Chunk<T> {
-    fn new(fixed: &FixedSpec) -> Self {
+    fn new(fixed: &VariantSpec) -> Self {
         Chunk {
             length: 0,
             chrom_values: fixed.chrom.map(StrColumn::new),
@@ -1149,7 +1149,7 @@ impl VCFChunkIterator {
         if alt_number == 0 {
             return Err(PyValueError::new_err("alt_number must be positive"));
         }
-        let mut fixed = FixedSpec {
+        let mut fixed = VariantSpec {
             chrom: None, id: None, ref_: None, alt: None, alt_number,
             numalt: false, altlen: false, is_snp: false, qual: false, filters: Vec::new(),
             infos: Vec::new(),
@@ -1157,6 +1157,9 @@ impl VCFChunkIterator {
         let mut info_fields = Vec::new();
         for (name, dtype, number, fill) in &infos {
             let flag = dtype == "b1";
+            if *number == 0 && !flag {
+                return Err(PyValueError::new_err(format!("INFO field {name:?} of number 0 must be a flag")));
+            }
             fixed.infos.push(InfoSpec {
                 key: name.as_bytes().to_vec(),
                 // flags are one value per variant, whatever their number
@@ -1164,9 +1167,6 @@ impl VCFChunkIterator {
                 column: info_column(name, dtype, fill.as_ref())?,
             });
             info_fields.push(format!("variants/{name}"));
-            if fixed.infos.last().is_some_and(|i| i.number == 0) {
-                return Err(PyValueError::new_err(format!("INFO field {name:?} of number 0 must be a flag")));
-            }
         }
         fixed.infos.sort_by(|a, b| a.key.cmp(&b.key));
         let mut store_pos = false;

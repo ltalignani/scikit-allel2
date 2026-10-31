@@ -1877,6 +1877,9 @@ def _rust_info_code(t, number):
         t = np.dtype(t)
     except TypeError:
         return None
+    if number < 0 or not t.isnative:
+        # the Cython parser rejects or skips these
+        return None
     if t == np.dtype(bool) or number == 0:
         return 'b1'
     if t.kind in 'iu' or t in (np.dtype('f4'), np.dtype('f8')):
@@ -1884,13 +1887,14 @@ def _rust_info_code(t, number):
     return _rust_string_code(t)
 
 
-def _rust_info_fill(code, fill):
-    """`fill` as the Rust parser takes it for an INFO field of dtype `code`,
+def _rust_info_fill(code, fills, f):
+    """The fill of INFO field `f` of dtype `code` as the Rust parser takes it,
     None for the default; raises TypeError if the Rust parser does not
     handle it."""
-    if fill is None or code[0] not in 'iuf':
+    if f not in fills or code[0] not in 'iuf':
         # the Cython parser ignores fills of flags and strings
         return None
+    fill = fills[f]
     if isinstance(fill, Integral):
         return int(fill)
     if code[0] == 'f' and isinstance(fill, Real):
@@ -1912,10 +1916,10 @@ def _cython_fields_reason(fields, types, numbers, fills):
         if _is_info_field(f):
             code = _rust_info_code(types[f], numbers[f])
             if code is None:
-                return ('type %r of field %r is not handled by the Rust parser'
-                        % (types[f], f))
+                return ('type %r or number %r of field %r is not handled by the Rust parser'
+                        % (types[f], numbers[f], f))
             try:
-                _rust_info_fill(code, fills.get(f))
+                _rust_info_fill(code, fills, f)
             except TypeError:
                 return ('fill %r of field %r is not handled by the Rust parser'
                         % (fills[f], f))
@@ -1940,6 +1944,7 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
     string_types = {f: _rust_string_code(types[f])
                     for f in fields if f in _RUST_STRING_FIELDS}
     infos = list()
+    # sorted as the Cython parser warns about them
     for f in sorted((f for f in fields if _is_info_field(f)), key=lambda f: f.encode()):
         t, n = types[f], numbers[f]
         code = _rust_info_code(t, n)
@@ -1948,7 +1953,7 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
             t = np.dtype(object) if np.dtype(t).kind == 'T' else t
             warnings.warn('cannot have non-bool dtype for field with number 0, '
                           'ignoring type %r' % t)
-        infos.append((f[len('variants/'):], code, n, _rust_info_fill(code, fills.get(f))))
+        infos.append((f[len('variants/'):], code, n, _rust_info_fill(code, fills, f)))
     gt = None
     if 'calldata/GT' in fields:
         t = _rust_genotype_dtype(types['calldata/GT'])
