@@ -11,14 +11,15 @@
 //! and `is_snp`, and the FORMAT fields, as call data. Python sends the others
 //! to the Cython parser.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
 
 use flate2::read::MultiGzDecoder;
 use numpy::{Element, IntoPyArray, PyArrayMethods};
-use pyo3::exceptions::{PyOSError, PyOverflowError, PyUserWarning, PyValueError};
+use pyo3::exceptions::{PyOSError, PyOverflowError, PyRuntimeError, PyUserWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyString, PyTuple};
 
@@ -339,6 +340,12 @@ impl StrColumn {
         StrColumn { kind, data: Vec::new(), ends: Vec::new() }
     }
 
+    fn append(&mut self, other: StrColumn) {
+        let offset = self.data.len();
+        self.ends.extend(other.ends.iter().map(|end| end + offset));
+        self.data.extend(other.data);
+    }
+
     fn push(&mut self, value: &[u8]) {
         match self.kind {
             StrType::Object => {
@@ -404,8 +411,17 @@ trait Column: Send + Sync {
     /// parser does: values beyond `number` are ignored, and a repeated key
     /// overwrites what its values give.
     fn store(&mut self, at: usize, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str));
+    /// Append the values of `other`, a column of the same type; false if it
+    /// is not.
+    fn append(&mut self, other: Box<dyn Column>) -> bool;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>>;
+}
+
+/// `other` as a column of type `C`, if it is one.
+fn downcast<C: Column + 'static>(other: Box<dyn Column>) -> Option<Box<C>> {
+    other.into_any().downcast::<C>().ok()
 }
 
 fn is_comma(c: &u8) -> bool {
@@ -428,6 +444,14 @@ impl Column for FlagColumn {
     }
     fn store(&mut self, at: usize, _value: &[u8], _number: usize, _warn: &mut dyn FnMut(&'static str)) {
         self.0[at] = true;
+    }
+    fn append(&mut self, other: Box<dyn Column>) -> bool {
+        let Some(other) = downcast::<Self>(other) else { return false };
+        self.0.extend(other.0);
+        true
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
     }
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>> {
@@ -458,6 +482,14 @@ impl<T: Element + Copy + Send + Sync + 'static> Column for NumberColumn<T> {
                 warn(message);
             }
         }
+    }
+    fn append(&mut self, other: Box<dyn Column>) -> bool {
+        let Some(other) = downcast::<Self>(other) else { return false };
+        self.data.extend(other.data);
+        true
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
     }
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>> {
@@ -501,6 +533,14 @@ impl<T: Integer + 'static> Column for AlleleCountColumn<T> {
             }
         }
     }
+    fn append(&mut self, other: Box<dyn Column>) -> bool {
+        let Some(other) = downcast::<Self>(other) else { return false };
+        self.0.extend(other.0);
+        true
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>> {
         self.0.into_pyarray(py).reshape(shape).map(|a| a.into_any())
@@ -527,6 +567,14 @@ impl Column for BytesColumn {
             let n = value.len().min(width);
             slot[..n].copy_from_slice(&value[..n]);
         }
+    }
+    fn append(&mut self, other: Box<dyn Column>) -> bool {
+        let Some(other) = downcast::<Self>(other) else { return false };
+        self.data.extend(other.data);
+        true
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
     }
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>> {
@@ -558,6 +606,16 @@ impl Column for ObjectColumn {
                 *slot = Some((start, self.data.len()));
             }
         }
+    }
+    fn append(&mut self, other: Box<dyn Column>) -> bool {
+        let Some(other) = downcast::<Self>(other) else { return false };
+        let offset = self.data.len();
+        self.values.extend(other.values.iter().map(|v| v.map(|(start, end)| (start + offset, end + offset))));
+        self.data.extend(other.data);
+        true
+    }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
     }
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>> {
@@ -731,6 +789,56 @@ impl Chunk {
             warnings: Vec::new(),
         }
     }
+
+    /// Append the variants of `other`, parsed after those of `self` with the
+    /// same spec; false if its columns do not match.
+    fn append(&mut self, other: Chunk) -> bool {
+        fn append_str(a: &mut Option<StrColumn>, b: Option<StrColumn>) {
+            if let (Some(a), Some(b)) = (a, b) {
+                a.append(b);
+            }
+        }
+        fn append_columns(a: &mut [Box<dyn Column>], b: Vec<Box<dyn Column>>) -> bool {
+            a.iter_mut().zip(b).all(|(a, b)| a.append(b))
+        }
+        self.length += other.length;
+        append_str(&mut self.chrom_values, other.chrom_values);
+        self.pos.extend(other.pos);
+        append_str(&mut self.id, other.id);
+        append_str(&mut self.ref_, other.ref_);
+        append_str(&mut self.alt, other.alt);
+        self.numalt.extend(other.numalt);
+        self.altlen.extend(other.altlen);
+        self.is_snp.extend(other.is_snp);
+        self.qual.extend(other.qual);
+        self.filters.extend(other.filters);
+        self.chrom = other.chrom;
+        self.last_pos = other.last_pos;
+        self.warnings.extend(other.warnings);
+        append_columns(&mut self.infos, other.infos) && append_columns(&mut self.calldata, other.calldata)
+    }
+}
+
+/// Lines read from the file, parsed together on one thread.
+struct Batch {
+    data: Vec<u8>,
+    // start and end of each line in `data`, and whether it had a terminator
+    lines: Vec<(usize, usize, bool)>,
+    // index of the variant before the first line
+    previous_variant: i64,
+}
+
+impl Batch {
+    fn parse(&self, spec: &Spec) -> Chunk {
+        let mut chunk = Chunk::new(spec);
+        for (i, &(start, end, terminated)) in self.lines.iter().enumerate() {
+            let line_end = if terminated { State::Eol } else { State::Eof };
+            let previous_variant = self.previous_variant + i as i64;
+            chunk.last_pos = parse_line(&self.data[start..end], line_end, previous_variant, spec, &mut chunk);
+            chunk.length += 1;
+        }
+        chunk
+    }
 }
 
 #[pyclass(module = "allel2.opt.io_vcf_read_rs")]
@@ -739,6 +847,9 @@ struct VCFChunkIterator {
     reader: Mutex<Box<dyn BufRead + Send>>,
     chunk_length: usize,
     spec: Spec,
+    // parses batches of lines of at least `batch_bytes`, but the last
+    pool: rayon::ThreadPool,
+    batch_bytes: usize,
     // index of the last variant read, -1 before the first
     variant_index: i64,
     eof: bool,
@@ -757,15 +868,22 @@ fn open(path: &str) -> PyResult<Box<dyn BufRead + Send>> {
 
 /// Read one line into `line` without its terminator. Returns `None` at end of
 /// file, otherwise whether the line had a terminator.
+fn read_line(reader: &mut dyn BufRead, line: &mut Vec<u8>) -> std::io::Result<Option<bool>> {
+    line.clear();
+    append_line(reader, line)
+}
+
+/// Append one line to `data` without its terminator, as `read_line` does.
 ///
 /// As in the Cython parser, a line ends at LF, CR LF or a lone CR, and a null
 /// byte is the end of the file.
-fn read_line(reader: &mut dyn BufRead, line: &mut Vec<u8>) -> std::io::Result<Option<bool>> {
-    line.clear();
+fn append_line(reader: &mut dyn BufRead, data: &mut Vec<u8>) -> std::io::Result<Option<bool>> {
+    let start = data.len();
+    let line = data;
     loop {
         let buf = reader.fill_buf()?;
         if buf.is_empty() {
-            return Ok(if line.is_empty() { None } else { Some(false) });
+            return Ok(if line.len() == start { None } else { Some(false) });
         }
         let Some(i) = memchr::memchr3(b'\n', b'\r', 0, buf) else {
             line.extend_from_slice(buf);
@@ -778,7 +896,7 @@ fn read_line(reader: &mut dyn BufRead, line: &mut Vec<u8>) -> std::io::Result<Op
         if c == 0 {
             // left unread, so that reading stops here
             reader.consume(i);
-            return Ok(if line.is_empty() { None } else { Some(false) });
+            return Ok(if line.len() == start { None } else { Some(false) });
         }
         reader.consume(i + 1);
         if c == b'\r' && reader.fill_buf()?.first() == Some(&b'\n') {
@@ -807,30 +925,67 @@ impl Context<'_> {
 
 impl VCFChunkIterator {
     /// Parse up to `chunk_length` lines. Runs without the GIL.
+    ///
+    /// This thread reads batches of lines, which the threads of the pool parse
+    /// as they come; the chunks of the batches are then joined in order.
     fn parse_chunk(&mut self) -> std::io::Result<Chunk> {
-        let mut chunk = Chunk::new(&self.spec);
         let reader = self.reader.get_mut().unwrap_or_else(|e| e.into_inner());
-        let mut line = Vec::new();
-        while chunk.length < self.chunk_length {
-            let terminated = match read_line(reader.as_mut(), &mut line)? {
-                None => {
-                    // end of file at the start of a line
-                    self.eof = true;
-                    chunk.chrom.clear();
-                    chunk.last_pos = 0;
+        let (spec, chunk_length, batch_bytes) = (&self.spec, self.chunk_length, self.batch_bytes);
+        let mut previous_variant = self.variant_index;
+        let mut eof = false;
+        // whether the file ends at the start of a line
+        let mut eof_at_line_start = false;
+        let (sender, receiver) = mpsc::channel();
+        self.pool.install(|| rayon::scope(|scope| -> std::io::Result<()> {
+            let mut n_lines = 0;
+            let mut n_batches = 0;
+            while n_lines < chunk_length && !eof {
+                let mut batch = Batch { data: Vec::new(), lines: Vec::new(), previous_variant };
+                while n_lines < chunk_length && batch.data.len() < batch_bytes {
+                    let start = batch.data.len();
+                    match append_line(reader.as_mut(), &mut batch.data)? {
+                        None => {
+                            eof = true;
+                            eof_at_line_start = true;
+                            break;
+                        }
+                        Some(terminated) => {
+                            batch.lines.push((start, batch.data.len(), terminated));
+                            n_lines += 1;
+                            if !terminated {
+                                eof = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if batch.lines.is_empty() {
                     break;
                 }
-                Some(t) => t,
-            };
-            let line_end = if terminated { State::Eol } else { State::Eof };
-            let pos = parse_line(&line, line_end, self.variant_index, &self.spec, &mut chunk);
-            self.variant_index += 1;
-            chunk.length += 1;
-            chunk.last_pos = pos;
-            if !terminated {
-                self.eof = true;
-                break;
+                previous_variant += batch.lines.len() as i64;
+                let (sender, index) = (sender.clone(), n_batches);
+                n_batches += 1;
+                scope.spawn(move |_| {
+                    // the receiver outlives the scope
+                    let _ = sender.send((index, batch.parse(spec)));
+                });
             }
+            Ok(())
+        }))?;
+        drop(sender);
+        let mut chunks: Vec<(usize, Chunk)> = receiver.into_iter().collect();
+        chunks.sort_by_key(|(index, _)| *index);
+        let mut chunk = Chunk::new(spec);
+        for (_, other) in chunks {
+            if !chunk.append(other) {
+                return Err(std::io::Error::other("internal error: chunks of different columns"));
+            }
+        }
+        self.variant_index = previous_variant;
+        self.eof = eof;
+        if eof_at_line_start {
+            chunk.chrom.clear();
+            chunk.last_pos = 0;
         }
         Ok(chunk)
     }
@@ -1180,18 +1335,28 @@ impl VCFChunkIterator {
     /// code ('O' or 'S<width>'). `alt_number` is the number of ALT values per
     /// variant. `infos` and `formats` are the INFO and FORMAT fields among
     /// `fields`, as `(name, dtype code, number, fill or None)`; see `column`
-    /// for the dtype codes.
+    /// for the dtype codes. Lines are parsed on `n_threads` threads, in
+    /// batches of at least `batch_bytes`.
     #[new]
     #[pyo3(signature = (path, chunk_length, samples, loc_samples, fields, string_types,
-                        alt_number, infos=Vec::new(), formats=Vec::new()))]
+                        alt_number, infos=Vec::new(), formats=Vec::new(), n_threads=1,
+                        batch_bytes=1 << 22))]
     #[allow(clippy::too_many_arguments)]
     fn new(path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
            fields: Vec<String>, string_types: HashMap<String, String>, alt_number: usize,
            infos: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>,
-           formats: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>) -> PyResult<Self> {
+           formats: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>,
+           n_threads: usize, batch_bytes: usize) -> PyResult<Self> {
         if chunk_length == 0 {
             return Err(PyValueError::new_err("chunk_length must be positive"));
         }
+        if n_threads == 0 {
+            return Err(PyValueError::new_err("n_threads must be positive"));
+        }
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n_threads)
+            .build()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         if loc_samples.len() != samples.len() {
             return Err(PyValueError::new_err("loc_samples and samples differ in length"));
         }
@@ -1252,9 +1417,17 @@ impl VCFChunkIterator {
             reader: Mutex::new(reader),
             chunk_length,
             spec: Spec { samples, loc_samples, n_samples_out, store_pos, fixed, formats },
+            pool,
+            batch_bytes,
             variant_index: -1,
             eof: false,
         })
+    }
+
+    /// The number of threads parsing lines.
+    #[getter]
+    fn n_threads(&self) -> usize {
+        self.pool.current_num_threads()
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
