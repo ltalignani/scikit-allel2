@@ -14,8 +14,10 @@ import warnings
 import numpy as np
 import pytest
 
+import allel2.io.vcf_read
 from allel2.io.vcf_read import (iter_vcf_chunks, read_vcf, read_vcf_headers,
-                                ANNTransformer)
+                                ANNTransformer, vcf_to_npz, vcf_to_hdf5, vcf_to_zarr,
+                                vcf_to_dataframe, vcf_to_csv, vcf_to_recarray)
 
 
 DATA = os.path.join(os.path.dirname(__file__), os.pardir, 'data')
@@ -224,6 +226,12 @@ def assert_rust_matches_cython(path, monkeypatch, caplog, **kwargs):
     assert cython_warnings == rust_warnings
 
 
+@pytest.fixture
+def one_line_batches(monkeypatch):
+    # the Rust parser parses each line in a batch of its own, in parallel
+    monkeypatch.setattr(allel2.io.vcf_read, '_RUST_BATCH_BYTES', 1)
+
+
 @pytest.mark.parametrize('fn', FILES)
 @pytest.mark.parametrize('fields', FIELDS)
 @pytest.mark.parametrize('chunk_length', [1, 2, 3, 2**16])
@@ -231,6 +239,93 @@ def test_test_files(fn, fields, chunk_length, monkeypatch, caplog):
     path = os.path.join(DATA, fn)
     assert_rust_matches_cython(path, monkeypatch, caplog,
                                fields=_fields(path, fields), chunk_length=chunk_length)
+
+
+@pytest.mark.parametrize('fn', FILES)
+@pytest.mark.parametrize('fields', [None, '*', ['POS', 'GT']])
+@pytest.mark.parametrize('chunk_length', [1, 3, 2**16])
+@pytest.mark.parametrize('n_threads', [1, 4])
+def test_threads(fn, fields, chunk_length, n_threads, one_line_batches, monkeypatch,
+                 caplog):
+    # chunks are the same, in the same order, whatever the number of threads
+    assert_rust_matches_cython(os.path.join(DATA, fn), monkeypatch, caplog,
+                               fields=fields, chunk_length=chunk_length,
+                               n_threads=n_threads)
+
+
+@pytest.mark.parametrize('name', sorted(EDGE_CASES))
+@pytest.mark.parametrize('n_threads', [1, 3])
+def test_threads_edge_cases(name, n_threads, edge_vcf, one_line_batches, monkeypatch,
+                            caplog):
+    assert_rust_matches_cython(edge_vcf(name), monkeypatch, caplog,
+                               fields=FIXED_FIELDS + EDGE_FILTERS + ['GT'], chunk_length=2,
+                               n_threads=n_threads)
+
+
+def test_n_threads_is_the_last_parameter():
+    # positional arguments keep their meaning
+    import inspect
+    for reader in (read_vcf, iter_vcf_chunks, vcf_to_npz, vcf_to_hdf5, vcf_to_zarr,
+                   vcf_to_dataframe, vcf_to_csv, vcf_to_recarray):
+        names = [p.name for p in inspect.signature(reader).parameters.values()
+                 if p.kind is not inspect.Parameter.VAR_KEYWORD]
+        assert 'n_threads' == names[-1], reader.__name__
+
+
+READERS = [
+    lambda path, tmp, **kw: read_vcf(path, **kw),
+    lambda path, tmp, **kw: list(iter_vcf_chunks(path, **kw)[3]),
+    lambda path, tmp, **kw: vcf_to_npz(path, str(tmp / 'out.npz'), **kw),
+    lambda path, tmp, **kw: vcf_to_hdf5(path, str(tmp / 'out.h5'), **kw),
+    lambda path, tmp, **kw: vcf_to_zarr(path, str(tmp / 'out.zarr'), **kw),
+    lambda path, tmp, **kw: vcf_to_dataframe(path, **kw),
+    lambda path, tmp, **kw: vcf_to_csv(path, str(tmp / 'out.csv'), **kw),
+    lambda path, tmp, **kw: vcf_to_recarray(path, **kw),
+]
+
+
+@pytest.mark.parametrize('reader', READERS)
+@pytest.mark.parametrize('n_threads', [0, -1, 1.5, '2', True])
+@pytest.mark.parametrize('backend', ['rust', 'cython'])
+def test_invalid_n_threads(reader, n_threads, backend, tmp_path, monkeypatch):
+    monkeypatch.setenv('ALLEL2_BACKEND', backend)
+    with pytest.raises(ValueError, match='n_threads'):
+        reader(os.path.join(DATA, 'sample.vcf'), tmp_path, n_threads=n_threads)
+
+
+@pytest.mark.parametrize('reader', READERS)
+def test_readers_take_n_threads(reader, tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv('ALLEL2_BACKEND', raising=False)
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        reader(os.path.join(DATA, 'sample.vcf'), tmp_path, n_threads=2)
+    assert RUST + ' on 2 threads' in caplog.text
+
+
+@pytest.mark.parametrize('omp, n_threads, expected', [
+    ('2', None, 2),
+    ('2', 3, 3),
+    (None, 3, 3),
+    ('1', None, 1),
+])
+def test_omp_num_threads(omp, n_threads, expected, monkeypatch, caplog):
+    if omp is None:
+        monkeypatch.delenv('OMP_NUM_THREADS', raising=False)
+    else:
+        monkeypatch.setenv('OMP_NUM_THREADS', omp)
+    _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog, n_threads=n_threads)
+    assert '%s on %d threads' % (RUST, expected) in caplog.text
+
+
+def test_default_n_threads(monkeypatch, caplog):
+    # the cores this process may run on
+    monkeypatch.delenv('OMP_NUM_THREADS', raising=False)
+    if hasattr(os, 'sched_getaffinity'):
+        expected = len(os.sched_getaffinity(0))
+    else:
+        expected = os.process_cpu_count() if hasattr(os, 'process_cpu_count') \
+            else os.cpu_count()
+    _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog)
+    assert '%s on %d threads' % (RUST, expected) in caplog.text
 
 
 @pytest.mark.parametrize('fn', ['sample.vcf', 'test63.vcf', 'test1.vcf', 'test32.vcf'])
@@ -707,3 +802,11 @@ def test_altlen_shape(backend, fields, monkeypatch, caplog):
     callset = _read(os.path.join(DATA, 'altlen.vcf'), monkeypatch, caplog,
                     backend=backend, fields=fields, alt_number=1)
     assert 1 == callset['variants/altlen'].ndim
+
+
+@pytest.mark.parametrize('fn', ['sample.vcf', 'test32.vcf', 'test1.vcf'])
+@pytest.mark.parametrize('options', FORMAT_OPTIONS[::3] + INFO_OPTIONS[::3] + FIXED_OPTIONS[::3])
+def test_threads_options(fn, options, one_line_batches, monkeypatch, caplog):
+    path = os.path.join(DATA, fn)
+    assert_rust_matches_cython(path, monkeypatch, caplog, fields='*', chunk_length=3,
+                               n_threads=4, **options)

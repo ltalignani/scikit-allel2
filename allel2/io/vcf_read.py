@@ -249,6 +249,12 @@ _doc_param_buffer_size = \
 _doc_param_chunk_length = \
     """Length (number of variants) of chunks in which data are processed."""
 
+_doc_param_n_threads = \
+    """Number of threads parsing the VCF file. By default, the CPU cores this
+        process may run on, at most the value of the ``OMP_NUM_THREADS``
+        environment variable if it is set. Ignored when the Cython parser reads
+        the file (see ``ALLEL2_BACKEND``)."""
+
 _doc_param_log = \
     """A file-like object (e.g., `sys.stderr`) to print progress information."""
 
@@ -268,7 +274,8 @@ def read_vcf(input,
              transformers=None,
              buffer_size=DEFAULT_BUFFER_SIZE,
              chunk_length=DEFAULT_CHUNK_LENGTH,
-             log=None):
+             log=None,
+             n_threads=None):
     """Read data from a VCF file into NumPy arrays.
 
     .. versionchanged:: 1.12.0
@@ -307,6 +314,8 @@ def read_vcf(input,
         {chunk_length}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------
@@ -323,7 +332,8 @@ def read_vcf(input,
     fields, samples, headers, it = iter_vcf_chunks(
         input=input, fields=fields, exclude_fields=exclude_fields, types=types,
         numbers=numbers, alt_number=alt_number, buffer_size=buffer_size,
-        chunk_length=chunk_length, fills=fills, region=region, tabix=tabix,
+        chunk_length=chunk_length, n_threads=n_threads, fills=fills, region=region,
+        tabix=tabix,
         samples=samples, transformers=transformers
     )
 
@@ -377,6 +387,7 @@ read_vcf.__doc__ = read_vcf.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     log=_doc_param_log,
 )
 
@@ -405,7 +416,8 @@ def vcf_to_npz(input, output,
                transformers=None,
                buffer_size=DEFAULT_BUFFER_SIZE,
                chunk_length=DEFAULT_CHUNK_LENGTH,
-               log=None):
+               log=None,
+               n_threads=None):
     """Read data from a VCF file into NumPy arrays and save as a .npz file.
 
     .. versionchanged:: 1.12.0
@@ -450,6 +462,8 @@ def vcf_to_npz(input, output,
         {chunk_length}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     """
 
@@ -463,6 +477,7 @@ def vcf_to_npz(input, output,
         input=input, fields=fields, exclude_fields=exclude_fields,
         rename_fields=rename_fields, types=types, numbers=numbers,
         alt_number=alt_number, buffer_size=buffer_size, chunk_length=chunk_length,
+        n_threads=n_threads,
         log=log, fills=fills, region=region, tabix=tabix, samples=samples,
         transformers=transformers
     )
@@ -501,6 +516,7 @@ vcf_to_npz.__doc__ = vcf_to_npz.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     log=_doc_param_log,
 )
 
@@ -650,7 +666,8 @@ def vcf_to_hdf5(input, output,
                 buffer_size=DEFAULT_BUFFER_SIZE,
                 chunk_length=DEFAULT_CHUNK_LENGTH,
                 chunk_width=DEFAULT_CHUNK_WIDTH,
-                log=None):
+                log=None,
+                n_threads=None):
     """Read data from a VCF file and load into an HDF5 file.
 
     .. versionchanged:: 1.12.0
@@ -714,6 +731,8 @@ def vcf_to_hdf5(input, output,
         {chunk_width}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     """
 
@@ -727,7 +746,8 @@ def vcf_to_hdf5(input, output,
     fields, samples, headers, it = iter_vcf_chunks(
         input, fields=fields, exclude_fields=exclude_fields, types=types,
         numbers=numbers, alt_number=alt_number, buffer_size=buffer_size,
-        chunk_length=chunk_length, fills=fills, region=region, tabix=tabix,
+        chunk_length=chunk_length, n_threads=n_threads, fills=fills, region=region,
+        tabix=tabix,
         samples=samples, transformers=transformers
     )
 
@@ -806,6 +826,7 @@ vcf_to_hdf5.__doc__ = vcf_to_hdf5.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     chunk_width=_doc_param_chunk_width,
     log=_doc_param_log,
 )
@@ -940,7 +961,8 @@ def vcf_to_zarr(input, output,
                 chunk_length=DEFAULT_CHUNK_LENGTH,
                 chunk_width=DEFAULT_CHUNK_WIDTH,
                 log=None,
-                zarr_format=3):
+                zarr_format=3,
+                n_threads=None):
     """Read data from a VCF file and load into a Zarr on-disk store.
 
     .. versionchanged:: 1.12.0
@@ -998,6 +1020,8 @@ def vcf_to_zarr(input, output,
         {chunk_width}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
     zarr_format : {{2, 3}}, optional
         Zarr format to write, 3 by default. Files in zarr format 3 cannot be read
         with zarr-python 2; use `zarr_format=2` for tools that still depend on it.
@@ -1023,7 +1047,8 @@ def vcf_to_zarr(input, output,
     fields, samples, headers, it = iter_vcf_chunks(
         input, fields=fields, exclude_fields=exclude_fields, types=types,
         numbers=numbers, alt_number=alt_number, buffer_size=buffer_size,
-        chunk_length=chunk_length, fills=fills, region=region, tabix=tabix,
+        chunk_length=chunk_length, n_threads=n_threads, fills=fills, region=region,
+        tabix=tabix,
         samples=samples, transformers=transformers
     )
     # setup compressor
@@ -1123,6 +1148,7 @@ vcf_to_zarr.__doc__ = vcf_to_zarr.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     chunk_width=_doc_param_chunk_width,
     log=_doc_param_log,
 )
@@ -1232,7 +1258,8 @@ def iter_vcf_chunks(input,
                     samples=None,
                     transformers=None,
                     buffer_size=DEFAULT_BUFFER_SIZE,
-                    chunk_length=DEFAULT_CHUNK_LENGTH):
+                    chunk_length=DEFAULT_CHUNK_LENGTH,
+                    n_threads=None):
     """Iterate over chunks of data from a VCF file as NumPy arrays.
 
     Parameters
@@ -1263,6 +1290,8 @@ def iter_vcf_chunks(input,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------
@@ -1277,10 +1306,12 @@ def iter_vcf_chunks(input,
 
     """
 
+    n_threads = _normalize_n_threads(n_threads)
+
     # setup commmon keyword args
     kwds = dict(fields=fields, exclude_fields=exclude_fields, types=types,
                 numbers=numbers, alt_number=alt_number, chunk_length=chunk_length,
-                fills=fills, samples=samples, region=region)
+                fills=fills, samples=samples, region=region, n_threads=n_threads)
 
     # choose the parser: Rust unless the input needs the Cython one
     reason = _cython_input_reason(input, region, transformers)
@@ -1321,6 +1352,7 @@ iter_vcf_chunks.__doc__ = iter_vcf_chunks.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     log=_doc_param_log,
 )
 
@@ -1803,6 +1835,35 @@ def _normalize_samples(samples, headers, types):
     return normed_samples, loc_samples
 
 
+# size in bytes of the batches of lines that the Rust parser parses in
+# parallel
+_RUST_BATCH_BYTES = 1 << 22
+
+
+def _available_cores():
+    """The CPU cores this process may run on."""
+    if hasattr(os, 'sched_getaffinity'):
+        return len(os.sched_getaffinity(0))
+    if hasattr(os, 'process_cpu_count'):
+        return os.process_cpu_count() or 1
+    return os.cpu_count() or 1
+
+
+def _normalize_n_threads(n_threads):
+    """The number of threads to read with: `n_threads`, or by default the
+    available cores, at most ``OMP_NUM_THREADS`` if set."""
+    if n_threads is None:
+        n = _available_cores()
+        try:
+            omp = int(os.environ.get('OMP_NUM_THREADS', ''))
+        except ValueError:
+            omp = 0
+        return min(n, omp) if omp >= 1 else n
+    if isinstance(n_threads, bool) or not isinstance(n_threads, Integral) or n_threads < 1:
+        raise ValueError('n_threads must be None or an integer >= 1, found %r' % (n_threads,))
+    return int(n_threads)
+
+
 def _backend():
     backend = os.environ.get(BACKEND_VARIABLE, 'rust')
     if backend not in BACKENDS:
@@ -1950,7 +2011,7 @@ def _cython_fields_reason(fields, types, numbers, fills):
 
 
 def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
-                 loc_samples):
+                 loc_samples, n_threads):
     # as the Cython parser does
     for f, t in ('POS', 'int32'), ('QUAL', 'float32'):
         requested = types.get('variants/' + f)
@@ -1979,11 +2040,12 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
                                 loc_samples=loc_samples.astype(bool).tolist(),
                                 fields=fields, string_types=string_types,
                                 alt_number=numbers.get('variants/ALT', 1), infos=infos,
-                                formats=formats)
+                                formats=formats, n_threads=n_threads,
+                                batch_bytes=_RUST_BATCH_BYTES)
 
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
-                     chunk_length, fills, region, samples, rust_path=None):
+                     chunk_length, fills, region, samples, n_threads, rust_path=None):
 
     # read VCF headers
     headers = _read_vcf_headers(stream)
@@ -2036,10 +2098,11 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
             _log_fallback(rust_path, reason)
             rust_path = None
     if rust_path is not None:
-        logger.debug('reading %r with the Rust VCF parser', rust_path)
         chunks = _rust_chunks(rust_path, headers=headers, fields=fields, types=types,
                               numbers=numbers, fills=fills, chunk_length=chunk_length,
-                              loc_samples=loc_samples)
+                              loc_samples=loc_samples, n_threads=n_threads)
+        logger.debug('reading %r with the Rust VCF parser on %d threads', rust_path,
+                     chunks.n_threads)
     else:
         chunks = VCFChunkIterator(
             stream, chunk_length=chunk_length, headers=headers, fields=fields,
@@ -2189,7 +2252,8 @@ def vcf_to_dataframe(input,
                      transformers=None,
                      buffer_size=DEFAULT_BUFFER_SIZE,
                      chunk_length=DEFAULT_CHUNK_LENGTH,
-                     log=None):
+                     log=None,
+                     n_threads=None):
     """Read data from a VCF file into a pandas DataFrame.
 
     Parameters
@@ -2220,6 +2284,8 @@ def vcf_to_dataframe(input,
         {chunk_length}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------
@@ -2237,7 +2303,8 @@ def vcf_to_dataframe(input,
     fields, _, _, it = iter_vcf_chunks(
         input=input, fields=fields, exclude_fields=exclude_fields, types=types,
         numbers=numbers, alt_number=alt_number, buffer_size=buffer_size,
-        chunk_length=chunk_length, fills=fills, region=region, tabix=tabix, samples=[],
+        chunk_length=chunk_length, n_threads=n_threads, fills=fills, region=region,
+        tabix=tabix, samples=[],
         transformers=transformers
     )
 
@@ -2273,6 +2340,7 @@ vcf_to_dataframe.__doc__ = vcf_to_dataframe.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     log=_doc_param_log,
 )
 
@@ -2291,6 +2359,7 @@ def vcf_to_csv(input, output,
                buffer_size=DEFAULT_BUFFER_SIZE,
                chunk_length=DEFAULT_CHUNK_LENGTH,
                log=None,
+               n_threads=None,
                **kwargs):
     r"""Read data from a VCF file and write out to a comma-separated values (CSV) file.
 
@@ -2324,6 +2393,8 @@ def vcf_to_csv(input, output,
         {chunk_length}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
     kwargs : keyword arguments
         All remaining keyword arguments are passed through to pandas.DataFrame.to_csv().
         E.g., to write a tab-delimited file, provide `sep='\t'`.
@@ -2338,7 +2409,8 @@ def vcf_to_csv(input, output,
     fields, _, _, it = iter_vcf_chunks(
         input=input, fields=fields, exclude_fields=exclude_fields, types=types,
         numbers=numbers, alt_number=alt_number, buffer_size=buffer_size,
-        chunk_length=chunk_length, fills=fills, region=region, tabix=tabix, samples=[],
+        chunk_length=chunk_length, n_threads=n_threads, fills=fills, region=region,
+        tabix=tabix, samples=[],
         transformers=transformers
     )
 
@@ -2372,6 +2444,7 @@ vcf_to_csv.__doc__ = vcf_to_csv.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     log=_doc_param_log,
 )
 
@@ -2412,7 +2485,8 @@ def vcf_to_recarray(input,
                     transformers=None,
                     buffer_size=DEFAULT_BUFFER_SIZE,
                     chunk_length=DEFAULT_CHUNK_LENGTH,
-                    log=None):
+                    log=None,
+                    n_threads=None):
     """Read data from a VCF file into a NumPy recarray.
 
     Parameters
@@ -2443,6 +2517,8 @@ def vcf_to_recarray(input,
         {chunk_length}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------
@@ -2459,7 +2535,8 @@ def vcf_to_recarray(input,
     fields, _, _, it = iter_vcf_chunks(
         input=input, fields=fields, exclude_fields=exclude_fields, types=types,
         numbers=numbers, alt_number=alt_number, buffer_size=buffer_size,
-        chunk_length=chunk_length, fills=fills, region=region, tabix=tabix, samples=[],
+        chunk_length=chunk_length, n_threads=n_threads, fills=fills, region=region,
+        tabix=tabix, samples=[],
         transformers=transformers
     )
 
@@ -2495,5 +2572,6 @@ vcf_to_recarray.__doc__ = vcf_to_recarray.__doc__.format(
     transformers=_doc_param_transformers,
     buffer_size=_doc_param_buffer_size,
     chunk_length=_doc_param_chunk_length,
+    n_threads=_doc_param_n_threads,
     log=_doc_param_log,
 )

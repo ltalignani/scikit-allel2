@@ -19,5 +19,6 @@ strip = false
 [dependencies]
 flate2 = "1.1"
 memchr = "2.7"
+rayon = "1.10"
 numpy = "0.30"
 pyo3 = { version = "0.30", features = ["extension-module"] }
