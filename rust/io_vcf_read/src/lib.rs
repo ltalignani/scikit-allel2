@@ -1042,32 +1042,50 @@ impl BufRead for RegionReader {
     }
 }
 
+/// Give `message` as a Python `UserWarning`.
+fn warn(py: Python<'_>, message: &str) -> PyResult<()> {
+    // through Python, as messages may contain null bytes (see Context)
+    let category = py.get_type::<PyUserWarning>();
+    py.import("warnings")?.getattr("warn")?.call1((message, &category))?;
+    Ok(())
+}
+
 /// Open the VCF file at `path`: decompressed with `n_threads` if BGZF, with
 /// one thread if another gzip, as read if not compressed (the same rule as
 /// for the Python input stream, on the name). With a `region` and
 /// `use_index`, an indexed BGZF file gives the lines of the region only,
-/// without the header. Returns the reader and whether it gives the header.
-fn open(path: &str, n_threads: usize, region: Option<&Region>, use_index: bool)
+/// without the header; an index that cannot be read gives a warning, as
+/// tabix failing does with the Cython parser. Returns the reader and whether
+/// it reads the region from the index.
+fn open(py: Python<'_>, path: &str, n_threads: usize, region: Option<&Region>, use_index: bool)
         -> PyResult<(Box<dyn BufRead + Send>, bool)> {
     let p = Path::new(path);
     let mut file = File::open(p).map_err(|e| os_error(p, e))?;
     if !path.ends_with("gz") {
-        return Ok((Box::new(BufReader::with_capacity(BUFFER_SIZE, file)), true));
+        return Ok((Box::new(BufReader::with_capacity(BUFFER_SIZE, file)), false));
     }
     if !is_bgzf(&mut file).map_err(|e| os_error(p, e))? {
         let reader = MultiGzDecoder::new(BufReader::with_capacity(BUFFER_SIZE, file));
-        return Ok((Box::new(BufReader::with_capacity(BUFFER_SIZE, reader)), true));
+        return Ok((Box::new(BufReader::with_capacity(BUFFER_SIZE, reader)), false));
     }
     let workers = NonZero::new(n_threads).unwrap_or(NonZero::<usize>::MIN);
     let reader = bgzf::io::MultithreadedReader::with_worker_count(workers, file);
     if let (Some(region), true) = (region, use_index) {
-        if let Some(index) = read_index(p)? {
-            let chunks = query(index.as_ref(), region).map_err(|e| os_error(p, e))?;
-            let reader = RegionReader { reader, chunks: chunks.into_iter(), end: None, line: Vec::new(), consumed: 0 };
-            return Ok((Box::new(reader), false));
+        let chunks = read_index(p).and_then(|index| match index {
+            Some(index) => query(index.as_ref(), region).map(Some).map_err(|e| os_error(p, e)),
+            None => Ok(None),
+        });
+        match chunks {
+            Ok(None) => {}
+            Ok(Some(chunks)) => {
+                let reader = RegionReader { reader, chunks: chunks.into_iter(), end: None,
+                                            line: Vec::new(), consumed: 0 };
+                return Ok((Box::new(reader), true));
+            }
+            Err(e) => warn(py, &format!("error reading the index ({e}); falling back to scanning to region"))?,
         }
     }
-    Ok((Box::new(reader), true))
+    Ok((Box::new(reader), false))
 }
 
 /// Read one line into `line` without its terminator. Returns `None` at end of
@@ -1210,13 +1228,8 @@ impl VCFChunkIterator {
         let chunk = py
             .detach(|| self.parse_chunk())
             .map_err(|e| PyOSError::new_err(e.to_string()))?;
-        if !chunk.warnings.is_empty() {
-            // through Python, as messages may contain null bytes (see Context)
-            let warn = py.import("warnings")?.getattr("warn")?;
-            let category = py.get_type::<PyUserWarning>();
-            for w in &chunk.warnings {
-                warn.call1((w.as_str(), &category))?;
-            }
+        for w in &chunk.warnings {
+            warn(py, w)?;
         }
         if chunk.length == 0 {
             return Ok(None);
@@ -1562,16 +1575,16 @@ impl VCFChunkIterator {
     /// for the dtype codes. Lines are parsed on `n_threads` threads, in
     /// batches of `batch_bytes`, or fewer lines so that each chunk gives each
     /// thread several batches.
-    #[new]
     ///
     /// With a `region`, `(chrom, begin, end)`, only its variants are read: from
     /// the file's index if `use_index` and the file is indexed BGZF, else by
-    /// scanning the file.
+    /// scanning the file, with a warning if the index cannot be read.
+    #[new]
     #[pyo3(signature = (path, chunk_length, samples, loc_samples, fields, string_types,
                         alt_number, n_threads, batch_bytes, region=None, use_index=true,
                         infos=Vec::new(), formats=Vec::new()))]
     #[allow(clippy::too_many_arguments)]
-    fn new(path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
+    fn new(py: Python<'_>, path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
            fields: Vec<String>, string_types: HashMap<String, String>, alt_number: usize,
            n_threads: usize, batch_bytes: usize, region: Option<(String, i64, i64)>,
            use_index: bool,
@@ -1631,10 +1644,10 @@ impl VCFChunkIterator {
         fixed.filters.dedup();
 
         let region = region.map(|(chrom, begin, end)| Region { chrom: chrom.into_bytes(), begin, end });
-        let (mut reader, has_header) = open(path, n_threads, region.as_ref(), use_index)?;
+        let (mut reader, indexed) = open(py, path, n_threads, region.as_ref(), use_index)?;
         // skip the header, already read by Python
         let mut line = Vec::new();
-        if has_header {
+        if !indexed {
             loop {
                 match read_line(reader.as_mut(), &mut line)? {
                     None => return Err(PyValueError::new_err(format!(
@@ -1654,7 +1667,7 @@ impl VCFChunkIterator {
             batch_bytes,
             batch_lines: chunk_length.div_ceil(4 * n_threads),
             region,
-            indexed: !has_header,
+            indexed,
             variant_index: -1,
             eof: false,
         })

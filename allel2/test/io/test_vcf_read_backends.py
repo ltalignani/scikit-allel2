@@ -650,7 +650,8 @@ REGION_FILES = ['sample.vcf.gz', 'sample.vcf', 'test54.vcf.gz', 'region.vcf',
 
 REGIONS = ['20', '20:14370-17330', '20:1110696-1230237', '19:111-112', 'X', 'Y',
            '2L', '2L:100-200', '2L:96-150', '2L:100-100', '2L:200-0', '2L:0-150',
-           '2L:150-100', '2L:16000-80000', '2L:1000000-1000000', '2R:1-1', '3L',
+           '2L:150-100', '2L:16000-80000', '2L:17000-17100', '2L:1000000-1000000',
+           '2R:1-1', '3L',
            'X:15000-25000', 'chrZ']
 
 
@@ -660,11 +661,11 @@ def region_vcf(tmp_path):
         if fn == 'gzip':
             # gzip, but not BGZF
             import gzip
-            path = tmp_path / 'region.gzip.vcf.gz'
+            gzip_path = tmp_path / 'region.gzip.vcf.gz'
             with open(os.path.join(DATA, 'region.vcf'), 'rb') as f, \
-                    gzip.open(path, 'wb') as g:
+                    gzip.open(gzip_path, 'wb') as g:
                 g.write(f.read())
-            return str(path)
+            return str(gzip_path)
         return os.path.join(DATA, fn)
     return path
 
@@ -692,6 +693,21 @@ def test_region_from_index(fn, tabix, indexed, region_vcf, monkeypatch, caplog):
     _read(region_vcf(fn), monkeypatch, caplog, region='2L', tabix=tabix)
     assert RUST in caplog.text
     assert indexed == ('region from the index' in caplog.text)
+
+
+@pytest.mark.parametrize('suffix', ['.tbi', '.csi'])
+def test_corrupt_index(suffix, tmp_path, monkeypatch, caplog):
+    # like the Cython parser when tabix fails: scan, with a warning
+    import shutil
+    path = str(tmp_path / 'region.vcf.gz')
+    shutil.copy(os.path.join(DATA, 'region.vcf.gz'), path)
+    with open(path + suffix, 'wb') as f:
+        f.write(b'not an index')
+    with pytest.warns(UserWarning, match='falling back to scanning to region'):
+        callset = _read(path, monkeypatch, caplog, region='2L:96-150', fields=['POS'])
+    assert RUST in caplog.text
+    assert 'region from the index' not in caplog.text
+    assert [99, 100, 150] == callset['variants/POS'].tolist()
 
 
 @pytest.mark.parametrize('region', ['20:1', '20:a-b', '20:1-2-3'])

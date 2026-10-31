@@ -227,10 +227,10 @@ _doc_param_region = \
 _doc_param_tabix = \
     """Name or path to tabix executable, used only by the Cython parser (see
         ``ALLEL2_BACKEND``). The Rust parser reads a region from the index of a
-        bgzip-compressed VCF file (``.tbi`` or ``.csi``) without tabix. Setting `tabix`
-        to `None` will cause a fall-back to scanning through the VCF file from the
-        beginning, which may be much slower but is the only option if the VCF file has
-        not been indexed."""
+        bgzip-compressed VCF file (``.tbi`` or ``.csi``) without tabix, unless `tabix`
+        is `None`. Setting `tabix` to `None` will cause a fall-back to scanning through
+        the VCF file from the beginning, which may be much slower but is the only option
+        if the VCF file has not been indexed."""
 
 _doc_param_samples = \
     """Selection of samples to extract calldata for. If provided, should be a list of
@@ -1328,7 +1328,7 @@ def iter_vcf_chunks(input,
 
     # setup iterator
     fields, samples, headers, it = _iter_vcf_stream(stream, rust_path=rust_path,
-                                                    rust_index=tabix is not None, **kwds)
+                                                    use_index=tabix is not None, **kwds)
 
     # setup transformers
     if transformers is not None:
@@ -2064,7 +2064,7 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
                      chunk_length, fills, region, samples, n_threads, rust_path=None,
-                     rust_index=True):
+                     use_index=True):
 
     # read VCF headers
     headers = _read_vcf_headers(stream)
@@ -2120,7 +2120,7 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
         chunks = _rust_chunks(rust_path, headers=headers, fields=fields, types=types,
                               numbers=numbers, fills=fills, chunk_length=chunk_length,
                               loc_samples=loc_samples, n_threads=n_threads,
-                              region=region, use_index=rust_index)
+                              region=region, use_index=use_index)
         logger.debug('reading %r with the Rust VCF parser on %d threads%s', rust_path,
                      chunks.n_threads, ', region from the index' if chunks.indexed else '')
     else:
