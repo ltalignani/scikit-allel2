@@ -1420,7 +1420,8 @@ cdef class VCFAltStringParser(VCFFieldParserBase):
         if self.store_altlen:
             field = ALTLEN_FIELD
             values = self.altlen_values
-            if self.values.ndim > 1 and self.number == 1:
+            # self.values is None when ALT is not stored
+            if self.number == 1:
                 values = values.squeeze(axis=1)
             chunk[field] = values[:limit]
         if self.store_is_snp:
@@ -1572,7 +1573,8 @@ cdef class VCFAltObjectParser(VCFFieldParserBase):
         if self.store_altlen:
             field = ALTLEN_FIELD
             values = self.altlen_values
-            if self.values.ndim > 1 and self.number == 1:
+            # self.values is None when ALT is not stored
+            if self.number == 1:
                 values = values.squeeze(axis=1)
             chunk[field] = values[:limit]
         if self.store_is_snp:

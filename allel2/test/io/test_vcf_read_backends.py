@@ -448,3 +448,12 @@ def test_invalid_utf8(backend, tmp_path, monkeypatch, caplog):
     path.write_bytes(HEADER + b'2L\t1\tid\xff\tA\tC\t.\t.\t.\n')
     with pytest.raises(UnicodeDecodeError):
         _read(str(path), monkeypatch, caplog, backend=backend, fields=['ID'])
+
+
+@pytest.mark.parametrize('backend', ['cython', 'rust'])
+@pytest.mark.parametrize('fields', [['altlen'], ['altlen', 'ALT']])
+def test_altlen_shape(backend, fields, monkeypatch, caplog):
+    # one ALT value per variant gives a 1-D altlen, with or without ALT
+    callset = _read(os.path.join(DATA, 'altlen.vcf'), monkeypatch, caplog,
+                    backend=backend, fields=fields, alt_number=1)
+    assert 1 == callset['variants/altlen'].ndim
