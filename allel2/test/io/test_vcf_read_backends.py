@@ -262,6 +262,16 @@ def test_threads_edge_cases(name, n_threads, edge_vcf, one_line_batches, monkeyp
                                n_threads=n_threads)
 
 
+def test_n_threads_is_the_last_parameter():
+    # positional arguments keep their meaning
+    import inspect
+    for reader in (read_vcf, iter_vcf_chunks, vcf_to_npz, vcf_to_hdf5, vcf_to_zarr,
+                   vcf_to_dataframe, vcf_to_csv, vcf_to_recarray):
+        names = [p.name for p in inspect.signature(reader).parameters.values()
+                 if p.kind is not inspect.Parameter.VAR_KEYWORD]
+        assert 'n_threads' == names[-1], reader.__name__
+
+
 READERS = [
     lambda path, tmp, **kw: read_vcf(path, **kw),
     lambda path, tmp, **kw: list(iter_vcf_chunks(path, **kw)[3]),
@@ -792,3 +802,11 @@ def test_altlen_shape(backend, fields, monkeypatch, caplog):
     callset = _read(os.path.join(DATA, 'altlen.vcf'), monkeypatch, caplog,
                     backend=backend, fields=fields, alt_number=1)
     assert 1 == callset['variants/altlen'].ndim
+
+
+@pytest.mark.parametrize('fn', ['sample.vcf', 'test32.vcf', 'test1.vcf'])
+@pytest.mark.parametrize('options', FORMAT_OPTIONS[::3] + INFO_OPTIONS[::3] + FIXED_OPTIONS[::3])
+def test_threads_options(fn, options, one_line_batches, monkeypatch, caplog):
+    path = os.path.join(DATA, fn)
+    assert_rust_matches_cython(path, monkeypatch, caplog, fields='*', chunk_length=3,
+                               n_threads=4, **options)

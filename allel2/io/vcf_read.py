@@ -250,10 +250,10 @@ _doc_param_chunk_length = \
     """Length (number of variants) of chunks in which data are processed."""
 
 _doc_param_n_threads = \
-    """Number of threads parsing the VCF file, and decompressing it when the
-        format allows. By default, the CPU cores this process may run on, at most
-        the value of the ``OMP_NUM_THREADS`` environment variable if it is set.
-        Ignored when the Cython parser reads the file (see ``ALLEL2_BACKEND``)."""
+    """Number of threads parsing the VCF file. By default, the CPU cores this
+        process may run on, at most the value of the ``OMP_NUM_THREADS``
+        environment variable if it is set. Ignored when the Cython parser reads
+        the file (see ``ALLEL2_BACKEND``)."""
 
 _doc_param_log = \
     """A file-like object (e.g., `sys.stderr`) to print progress information."""
@@ -274,8 +274,8 @@ def read_vcf(input,
              transformers=None,
              buffer_size=DEFAULT_BUFFER_SIZE,
              chunk_length=DEFAULT_CHUNK_LENGTH,
-             n_threads=None,
-             log=None):
+             log=None,
+             n_threads=None):
     """Read data from a VCF file into NumPy arrays.
 
     .. versionchanged:: 1.12.0
@@ -312,10 +312,10 @@ def read_vcf(input,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------
@@ -416,8 +416,8 @@ def vcf_to_npz(input, output,
                transformers=None,
                buffer_size=DEFAULT_BUFFER_SIZE,
                chunk_length=DEFAULT_CHUNK_LENGTH,
-               n_threads=None,
-               log=None):
+               log=None,
+               n_threads=None):
     """Read data from a VCF file into NumPy arrays and save as a .npz file.
 
     .. versionchanged:: 1.12.0
@@ -460,10 +460,10 @@ def vcf_to_npz(input, output,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     """
 
@@ -665,9 +665,9 @@ def vcf_to_hdf5(input, output,
                 transformers=None,
                 buffer_size=DEFAULT_BUFFER_SIZE,
                 chunk_length=DEFAULT_CHUNK_LENGTH,
-                n_threads=None,
                 chunk_width=DEFAULT_CHUNK_WIDTH,
-                log=None):
+                log=None,
+                n_threads=None):
     """Read data from a VCF file and load into an HDF5 file.
 
     .. versionchanged:: 1.12.0
@@ -727,12 +727,12 @@ def vcf_to_hdf5(input, output,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     chunk_width : int, optional
         {chunk_width}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     """
 
@@ -959,10 +959,10 @@ def vcf_to_zarr(input, output,
                 transformers=None,
                 buffer_size=DEFAULT_BUFFER_SIZE,
                 chunk_length=DEFAULT_CHUNK_LENGTH,
-                n_threads=None,
                 chunk_width=DEFAULT_CHUNK_WIDTH,
                 log=None,
-                zarr_format=3):
+                zarr_format=3,
+                n_threads=None):
     """Read data from a VCF file and load into a Zarr on-disk store.
 
     .. versionchanged:: 1.12.0
@@ -1016,12 +1016,12 @@ def vcf_to_zarr(input, output,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     chunk_width : int, optional
         {chunk_width}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
     zarr_format : {{2, 3}}, optional
         Zarr format to write, 3 by default. Files in zarr format 3 cannot be read
         with zarr-python 2; use `zarr_format=2` for tools that still depend on it.
@@ -2045,7 +2045,7 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
 
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
-                     chunk_length, fills, region, samples, n_threads=1, rust_path=None):
+                     chunk_length, fills, region, samples, n_threads, rust_path=None):
 
     # read VCF headers
     headers = _read_vcf_headers(stream)
@@ -2252,8 +2252,8 @@ def vcf_to_dataframe(input,
                      transformers=None,
                      buffer_size=DEFAULT_BUFFER_SIZE,
                      chunk_length=DEFAULT_CHUNK_LENGTH,
-                     n_threads=None,
-                     log=None):
+                     log=None,
+                     n_threads=None):
     """Read data from a VCF file into a pandas DataFrame.
 
     Parameters
@@ -2282,10 +2282,10 @@ def vcf_to_dataframe(input,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------
@@ -2358,8 +2358,8 @@ def vcf_to_csv(input, output,
                transformers=None,
                buffer_size=DEFAULT_BUFFER_SIZE,
                chunk_length=DEFAULT_CHUNK_LENGTH,
-               n_threads=None,
                log=None,
+               n_threads=None,
                **kwargs):
     r"""Read data from a VCF file and write out to a comma-separated values (CSV) file.
 
@@ -2391,10 +2391,10 @@ def vcf_to_csv(input, output,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
     kwargs : keyword arguments
         All remaining keyword arguments are passed through to pandas.DataFrame.to_csv().
         E.g., to write a tab-delimited file, provide `sep='\t'`.
@@ -2485,8 +2485,8 @@ def vcf_to_recarray(input,
                     transformers=None,
                     buffer_size=DEFAULT_BUFFER_SIZE,
                     chunk_length=DEFAULT_CHUNK_LENGTH,
-                    n_threads=None,
-                    log=None):
+                    log=None,
+                    n_threads=None):
     """Read data from a VCF file into a NumPy recarray.
 
     Parameters
@@ -2515,10 +2515,10 @@ def vcf_to_recarray(input,
         {buffer_size}
     chunk_length : int, optional
         {chunk_length}
-    n_threads : int, optional
-        {n_threads}
     log : file-like, optional
         {log}
+    n_threads : int, optional
+        {n_threads}
 
     Returns
     -------

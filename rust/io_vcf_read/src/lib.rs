@@ -252,6 +252,25 @@ fn parse_integer<T: Integer>(s: &[u8], slot: &mut T) -> Option<&'static str> {
     }
 }
 
+/// Integer and floating point dtypes, parsed as the Cython parser does.
+trait Number: Element + Copy + Send + Sync + 'static {
+    /// Parse a value into `slot`, leaving it unchanged when missing or
+    /// unparsable. Returns the warning to give, if any.
+    fn parse(s: &[u8], slot: &mut Self) -> Option<&'static str>;
+}
+
+macro_rules! impl_number {
+    ($parse:ident: $($t:ty),*) => {$(
+        impl Number for $t {
+            #[inline]
+            fn parse(s: &[u8], slot: &mut Self) -> Option<&'static str> { $parse(s, slot) }
+        }
+    )*};
+}
+
+impl_number!(parse_integer: i8, i16, i32, i64, u8, u16, u32, u64);
+impl_number!(parse_floating: f32, f64);
+
 /// Floating point dtypes of QUAL and INFO arrays, with C casts from `double`.
 trait Floating: Element + Copy + Send + Sync {
     fn from_double(v: f64) -> Self;
@@ -460,25 +479,24 @@ impl Column for FlagColumn {
 }
 
 /// Integers or floating point values, split on commas, or on '/' and '|'
-/// for genotypes.
-struct NumberColumn<T> {
+/// for genotypes (`ALLELES`).
+struct NumberColumn<T, const ALLELES: bool> {
     data: Vec<T>,
     fill: T,
-    parse: fn(&[u8], &mut T) -> Option<&'static str>,
-    separator: fn(&u8) -> bool,
 }
 
-impl<T: Element + Copy + Send + Sync + 'static> Column for NumberColumn<T> {
+impl<T: Number, const ALLELES: bool> Column for NumberColumn<T, ALLELES> {
     fn empty(&self) -> Box<dyn Column> {
-        Box::new(NumberColumn { data: Vec::new(), ..*self })
+        Box::new(NumberColumn::<T, ALLELES> { data: Vec::new(), fill: self.fill })
     }
     fn push_fill(&mut self, n: usize) {
         self.data.resize(self.data.len() + n, self.fill);
     }
     fn store(&mut self, at: usize, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str)) {
-        let values = value.split(self.separator).take(number);
+        let separator = if ALLELES { is_allele_separator } else { is_comma };
+        let values = value.split(separator).take(number);
         for (slot, value) in self.data[at..at + number].iter_mut().zip(values) {
-            if let Some(message) = (self.parse)(value, slot) {
+            if let Some(message) = T::parse(value, slot) {
                 warn(message);
             }
         }
@@ -632,21 +650,21 @@ enum IntegerKind {
     AlleleCount,
 }
 
-fn integer_column<T: Integer + 'static>(kind: IntegerKind, fill: Option<i128>, dtype: &str)
-                                        -> PyResult<Box<dyn Column>> {
+fn integer_column<T: Integer + Number>(kind: IntegerKind, fill: Option<i128>, dtype: &str)
+                                       -> PyResult<Box<dyn Column>> {
     Ok(match kind {
         IntegerKind::AlleleCount => Box::new(AlleleCountColumn::<T>(Vec::new())),
-        IntegerKind::Values | IntegerKind::Genotype => Box::new(NumberColumn {
-            data: Vec::new(),
-            fill: fill_value::<T>(fill, dtype)?,
-            parse: parse_integer::<T>,
-            separator: if matches!(kind, IntegerKind::Genotype) { is_allele_separator } else { is_comma },
-        }),
+        IntegerKind::Values => {
+            Box::new(NumberColumn::<T, false> { data: Vec::new(), fill: fill_value(fill, dtype)? })
+        }
+        IntegerKind::Genotype => {
+            Box::new(NumberColumn::<T, true> { data: Vec::new(), fill: fill_value(fill, dtype)? })
+        }
     })
 }
 
-fn floating_column<T: Floating + 'static>(fill: T) -> Box<dyn Column> {
-    Box::new(NumberColumn { data: Vec::new(), fill, parse: parse_floating::<T>, separator: is_comma })
+fn floating_column<T: Floating + Number>(fill: T) -> Box<dyn Column> {
+    Box::new(NumberColumn::<T, false> { data: Vec::new(), fill })
 }
 
 /// A column for a field of dtype code `code`: 'b1' for flags, 'i1' to 'u8',
@@ -819,11 +837,18 @@ impl Chunk {
     }
 }
 
+/// A line of a batch: where it is in the batch's data, and whether it had a
+/// terminator.
+struct Line {
+    start: usize,
+    end: usize,
+    terminated: bool,
+}
+
 /// Lines read from the file, parsed together on one thread.
 struct Batch {
     data: Vec<u8>,
-    // start and end of each line in `data`, and whether it had a terminator
-    lines: Vec<(usize, usize, bool)>,
+    lines: Vec<Line>,
     // index of the variant before the first line
     previous_variant: i64,
 }
@@ -831,10 +856,11 @@ struct Batch {
 impl Batch {
     fn parse(&self, spec: &Spec) -> Chunk {
         let mut chunk = Chunk::new(spec);
-        for (i, &(start, end, terminated)) in self.lines.iter().enumerate() {
-            let line_end = if terminated { State::Eol } else { State::Eof };
+        for (i, line) in self.lines.iter().enumerate() {
+            let line_end = if line.terminated { State::Eol } else { State::Eof };
             let previous_variant = self.previous_variant + i as i64;
-            chunk.last_pos = parse_line(&self.data[start..end], line_end, previous_variant, spec, &mut chunk);
+            let text = &self.data[line.start..line.end];
+            chunk.last_pos = parse_line(text, line_end, previous_variant, spec, &mut chunk);
             chunk.length += 1;
         }
         chunk
@@ -847,9 +873,11 @@ struct VCFChunkIterator {
     reader: Mutex<Box<dyn BufRead + Send>>,
     chunk_length: usize,
     spec: Spec,
-    // parses batches of lines of at least `batch_bytes`, but the last
+    // parses batches of lines of `batch_bytes` or `batch_lines`, whichever
+    // comes first, but the last of a chunk
     pool: rayon::ThreadPool,
     batch_bytes: usize,
+    batch_lines: usize,
     // index of the last variant read, -1 before the first
     variant_index: i64,
     eof: bool,
@@ -879,24 +907,23 @@ fn read_line(reader: &mut dyn BufRead, line: &mut Vec<u8>) -> std::io::Result<Op
 /// byte is the end of the file.
 fn append_line(reader: &mut dyn BufRead, data: &mut Vec<u8>) -> std::io::Result<Option<bool>> {
     let start = data.len();
-    let line = data;
     loop {
         let buf = reader.fill_buf()?;
         if buf.is_empty() {
-            return Ok(if line.len() == start { None } else { Some(false) });
+            return Ok(if data.len() == start { None } else { Some(false) });
         }
         let Some(i) = memchr::memchr3(b'\n', b'\r', 0, buf) else {
-            line.extend_from_slice(buf);
+            data.extend_from_slice(buf);
             let n = buf.len();
             reader.consume(n);
             continue;
         };
         let c = buf[i];
-        line.extend_from_slice(&buf[..i]);
+        data.extend_from_slice(&buf[..i]);
         if c == 0 {
             // left unread, so that reading stops here
             reader.consume(i);
-            return Ok(if line.len() == start { None } else { Some(false) });
+            return Ok(if data.len() == start { None } else { Some(false) });
         }
         reader.consume(i + 1);
         if c == b'\r' && reader.fill_buf()?.first() == Some(&b'\n') {
@@ -930,7 +957,8 @@ impl VCFChunkIterator {
     /// as they come; the chunks of the batches are then joined in order.
     fn parse_chunk(&mut self) -> std::io::Result<Chunk> {
         let reader = self.reader.get_mut().unwrap_or_else(|e| e.into_inner());
-        let (spec, chunk_length, batch_bytes) = (&self.spec, self.chunk_length, self.batch_bytes);
+        let (spec, chunk_length) = (&self.spec, self.chunk_length);
+        let (batch_bytes, batch_lines) = (self.batch_bytes, self.batch_lines);
         let mut previous_variant = self.variant_index;
         let mut eof = false;
         // whether the file ends at the start of a line
@@ -941,7 +969,8 @@ impl VCFChunkIterator {
             let mut n_batches = 0;
             while n_lines < chunk_length && !eof {
                 let mut batch = Batch { data: Vec::new(), lines: Vec::new(), previous_variant };
-                while n_lines < chunk_length && batch.data.len() < batch_bytes {
+                while n_lines < chunk_length && batch.data.len() < batch_bytes
+                    && batch.lines.len() < batch_lines {
                     let start = batch.data.len();
                     match append_line(reader.as_mut(), &mut batch.data)? {
                         None => {
@@ -950,7 +979,7 @@ impl VCFChunkIterator {
                             break;
                         }
                         Some(terminated) => {
-                            batch.lines.push((start, batch.data.len(), terminated));
+                            batch.lines.push(Line { start, end: batch.data.len(), terminated });
                             n_lines += 1;
                             if !terminated {
                                 eof = true;
@@ -1336,17 +1365,18 @@ impl VCFChunkIterator {
     /// variant. `infos` and `formats` are the INFO and FORMAT fields among
     /// `fields`, as `(name, dtype code, number, fill or None)`; see `column`
     /// for the dtype codes. Lines are parsed on `n_threads` threads, in
-    /// batches of at least `batch_bytes`.
+    /// batches of `batch_bytes`, or fewer lines so that each chunk gives each
+    /// thread several batches.
     #[new]
     #[pyo3(signature = (path, chunk_length, samples, loc_samples, fields, string_types,
-                        alt_number, infos=Vec::new(), formats=Vec::new(), n_threads=1,
-                        batch_bytes=1 << 22))]
+                        alt_number, n_threads, batch_bytes, infos=Vec::new(),
+                        formats=Vec::new()))]
     #[allow(clippy::too_many_arguments)]
     fn new(path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
            fields: Vec<String>, string_types: HashMap<String, String>, alt_number: usize,
+           n_threads: usize, batch_bytes: usize,
            infos: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>,
-           formats: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>,
-           n_threads: usize, batch_bytes: usize) -> PyResult<Self> {
+           formats: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>) -> PyResult<Self> {
         if chunk_length == 0 {
             return Err(PyValueError::new_err("chunk_length must be positive"));
         }
@@ -1419,6 +1449,7 @@ impl VCFChunkIterator {
             spec: Spec { samples, loc_samples, n_samples_out, store_pos, fixed, formats },
             pool,
             batch_bytes,
+            batch_lines: chunk_length.div_ceil(4 * n_threads),
             variant_index: -1,
             eof: false,
         })
