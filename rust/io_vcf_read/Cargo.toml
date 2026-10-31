@@ -19,6 +19,10 @@ strip = false
 [dependencies]
 flate2 = "1.1"
 memchr = "2.7"
+noodles-bgzf = "0.52"
+noodles-core = "0.21"
+noodles-csi = "0.62"
+noodles-tabix = "0.68"
 rayon = "1.10"
 numpy = "0.30"
 pyo3 = { version = "0.30", features = ["extension-module"] }

@@ -225,10 +225,12 @@ _doc_param_region = \
         returned by this function."""
 
 _doc_param_tabix = \
-    """Name or path to tabix executable. Only required if `region` is given. Setting
-        `tabix` to `None` will cause a fall-back to scanning through the VCF file from
-        the beginning, which may be much slower than tabix but the only option if tabix
-        is not available on your system and/or the VCF file has not been tabix-indexed."""
+    """Name or path to tabix executable, used only by the Cython parser (see
+        ``ALLEL2_BACKEND``). The Rust parser reads a region from the index of a
+        bgzip-compressed VCF file (``.tbi`` or ``.csi``) without tabix. Setting `tabix`
+        to `None` will cause a fall-back to scanning through the VCF file from the
+        beginning, which may be much slower but is the only option if the VCF file has
+        not been indexed."""
 
 _doc_param_samples = \
     """Selection of samples to extract calldata for. If provided, should be a list of
@@ -1318,13 +1320,15 @@ def iter_vcf_chunks(input,
     if reason is not None:
         _log_fallback(input, reason)
 
-    # setup input stream
-    stream = _setup_input_stream(input=input, region=region, tabix=tabix,
-                                 buffer_size=buffer_size)
+    # setup input stream; the Rust parser reads the file itself, without
+    # tabix, the stream giving the headers only
+    rust_path = input if reason is None else None
+    stream = _setup_input_stream(input=input, region=None if rust_path else region,
+                                 tabix=tabix, buffer_size=buffer_size)
 
     # setup iterator
-    rust_path = input if reason is None else None
-    fields, samples, headers, it = _iter_vcf_stream(stream, rust_path=rust_path, **kwds)
+    fields, samples, headers, it = _iter_vcf_stream(stream, rust_path=rust_path,
+                                                    rust_index=tabix is not None, **kwds)
 
     # setup transformers
     if transformers is not None:
@@ -1886,9 +1890,21 @@ def _cython_input_reason(input, region, transformers):
         return 'transformers are not handled by the Rust parser'
     if not isinstance(input, str):
         return 'file objects are not handled by the Rust parser'
-    if region is not None:
-        return 'regions are not yet handled by the Rust parser'
     return None
+
+
+def _parse_region(region):
+    """`region` as ``(chrom, begin, end)``, 0 for no bound, parsed as the
+    Cython parser does."""
+    tokens = region.split(':')
+    begin = end = 0
+    if len(tokens) > 1:
+        range_tokens = tokens[1].split('-')
+        if len(range_tokens) != 2:
+            raise ValueError('bad region string: %r' % region)
+        begin = int(range_tokens[0])
+        end = int(range_tokens[1])
+    return tokens[0], begin, end
 
 
 # fields read by the Rust parser whatever their type: numbers, computed fields
@@ -2011,7 +2027,7 @@ def _cython_fields_reason(fields, types, numbers, fills):
 
 
 def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
-                 loc_samples, n_threads):
+                 loc_samples, n_threads, region, use_index):
     # as the Cython parser does
     for f, t in ('POS', 'int32'), ('QUAL', 'float32'):
         requested = types.get('variants/' + f)
@@ -2041,11 +2057,14 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
                                 fields=fields, string_types=string_types,
                                 alt_number=numbers.get('variants/ALT', 1), infos=infos,
                                 formats=formats, n_threads=n_threads,
-                                batch_bytes=_RUST_BATCH_BYTES)
+                                batch_bytes=_RUST_BATCH_BYTES,
+                                region=None if region is None else _parse_region(region),
+                                use_index=use_index)
 
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
-                     chunk_length, fills, region, samples, n_threads, rust_path=None):
+                     chunk_length, fills, region, samples, n_threads, rust_path=None,
+                     rust_index=True):
 
     # read VCF headers
     headers = _read_vcf_headers(stream)
@@ -2100,9 +2119,10 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
     if rust_path is not None:
         chunks = _rust_chunks(rust_path, headers=headers, fields=fields, types=types,
                               numbers=numbers, fills=fills, chunk_length=chunk_length,
-                              loc_samples=loc_samples, n_threads=n_threads)
-        logger.debug('reading %r with the Rust VCF parser on %d threads', rust_path,
-                     chunks.n_threads)
+                              loc_samples=loc_samples, n_threads=n_threads,
+                              region=region, use_index=rust_index)
+        logger.debug('reading %r with the Rust VCF parser on %d threads%s', rust_path,
+                     chunks.n_threads, ', region from the index' if chunks.indexed else '')
     else:
         chunks = VCFChunkIterator(
             stream, chunk_length=chunk_length, headers=headers, fields=fields,

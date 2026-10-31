@@ -26,10 +26,10 @@ FALLBACK = 'falling back to the Cython VCF parser'
 RUST = 'with the Rust VCF parser'
 
 # every test VCF that has a header line
-FILES = ['altlen.vcf', 'ann.vcf', 'eff.vcf', 'empty.vcf', 'sample.utf8.vcf',
-         'sample.vcf', 'sample.vcf.gz', 'test1.vcf', 'test14.vcf', 'test16.vcf',
-         'test176.vcf', 'test32.vcf', 'test4.vcf', 'test48b.vcf', 'test54.vcf.gz',
-         'test63.vcf', 'unsorted.vcf']
+FILES = ['altlen.vcf', 'ann.vcf', 'eff.vcf', 'empty.vcf', 'region.vcf', 'region.vcf.gz',
+         'region_csi.vcf.gz', 'sample.utf8.vcf', 'sample.vcf', 'sample.vcf.gz', 'test1.vcf',
+         'test14.vcf', 'test16.vcf', 'test176.vcf', 'test32.vcf', 'test4.vcf',
+         'test48b.vcf', 'test54.vcf.gz', 'test63.vcf', 'unsorted.vcf']
 
 HEADER = (b'##fileformat=VCFv4.2\n'
           b'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
@@ -223,7 +223,8 @@ def assert_rust_matches_cython(path, monkeypatch, caplog, **kwargs):
     rust, rust_warnings, used_rust = _chunks(path, 'rust', monkeypatch, caplog, **kwargs)
     assert used_rust, caplog.text
     assert_same_chunks(cython, rust)
-    assert cython_warnings == rust_warnings
+    # the Rust parser does not run tabix, nor warns about it
+    assert [w for w in cython_warnings if 'tabix' not in w] == rust_warnings
 
 
 @pytest.fixture
@@ -642,11 +643,82 @@ def test_fallback_file_object(monkeypatch, caplog):
     assert 9 == len(callset['variants/POS'])
 
 
-def test_fallback_region(monkeypatch, caplog):
-    callset = _read(os.path.join(DATA, 'sample.vcf.gz'), monkeypatch, caplog,
-                    fields=['POS', 'GT'], region='20')
-    assert 'region' in _reason(caplog)
-    assert 6 == len(callset['variants/POS'])
+# regions, read from the index or by scanning
+
+REGION_FILES = ['sample.vcf.gz', 'sample.vcf', 'test54.vcf.gz', 'region.vcf',
+                'region.vcf.gz', 'region_csi.vcf.gz', 'gzip']
+
+REGIONS = ['20', '20:14370-17330', '20:1110696-1230237', '19:111-112', 'X', 'Y',
+           '2L', '2L:100-200', '2L:96-150', '2L:100-100', '2L:200-0', '2L:0-150',
+           '2L:150-100', '2L:16000-80000', '2L:1000000-1000000', '2R:1-1', '3L',
+           'X:15000-25000', 'chrZ']
+
+
+@pytest.fixture
+def region_vcf(tmp_path):
+    def path(fn):
+        if fn == 'gzip':
+            # gzip, but not BGZF
+            import gzip
+            path = tmp_path / 'region.gzip.vcf.gz'
+            with open(os.path.join(DATA, 'region.vcf'), 'rb') as f, \
+                    gzip.open(path, 'wb') as g:
+                g.write(f.read())
+            return str(path)
+        return os.path.join(DATA, fn)
+    return path
+
+
+@pytest.mark.parametrize('fn', REGION_FILES)
+@pytest.mark.parametrize('region', REGIONS)
+@pytest.mark.parametrize('tabix', ['tabix', None])
+@pytest.mark.parametrize('n_threads', [1, 3])
+def test_regions(fn, region, tabix, n_threads, region_vcf, monkeypatch, caplog):
+    assert_rust_matches_cython(region_vcf(fn), monkeypatch, caplog, region=region,
+                               tabix=tabix, fields='*', chunk_length=2,
+                               n_threads=n_threads)
+
+
+@pytest.mark.parametrize('fn, tabix, indexed', [
+    ('region.vcf.gz', 'tabix', True),
+    ('region_csi.vcf.gz', 'tabix', True),
+    ('sample.vcf.gz', '/no/such/tabix', True),
+    ('region.vcf.gz', None, False),
+    ('region.vcf', 'tabix', False),
+    ('gzip', 'tabix', False),
+])
+def test_region_from_index(fn, tabix, indexed, region_vcf, monkeypatch, caplog):
+    # the index is read unless tabix is None, if the file has one
+    _read(region_vcf(fn), monkeypatch, caplog, region='2L', tabix=tabix)
+    assert RUST in caplog.text
+    assert indexed == ('region from the index' in caplog.text)
+
+
+@pytest.mark.parametrize('region', ['20:1', '20:a-b', '20:1-2-3'])
+def test_bad_region(region, monkeypatch, caplog):
+    for backend in 'cython', 'rust':
+        with pytest.raises(ValueError, match='bad region string|invalid literal'):
+            _read(os.path.join(DATA, 'sample.vcf.gz'), monkeypatch, caplog,
+                  backend=backend, region=region, tabix=None)
+
+
+@pytest.mark.parametrize('tabix', ['tabix', '/no/such/tabix', None])
+def test_regions_without_tabix(tabix, tmp_path, monkeypatch, caplog):
+    # no tabix binary needed, whatever the tabix parameter
+    monkeypatch.setenv('PATH', str(tmp_path))
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        callset = _read(os.path.join(DATA, 'region.vcf.gz'), monkeypatch, caplog,
+                        region='2L:96-150', tabix=tabix, fields=['POS', 'ID'])
+    assert RUST in caplog.text
+    assert FALLBACK not in caplog.text
+    assert [99, 100, 150] == callset['variants/POS'].tolist()
+
+
+@pytest.mark.parametrize('n_threads', [1, 4])
+def test_gzip_not_bgzf(n_threads, region_vcf, monkeypatch, caplog):
+    assert_rust_matches_cython(region_vcf('gzip'), monkeypatch, caplog, fields='*',
+                               chunk_length=3, n_threads=n_threads)
 
 
 def test_default_fields(monkeypatch, caplog):
