@@ -17,11 +17,11 @@ Enhancements
 ~~~~~~~~~~~~
 
 * Reading VCF files is faster, on one thread and more so on several. With their
-  default fields, on 10 cores, with outputs identical to those of 2.0
-  (``bench/vcf_rust.py``):
+  default fields, on 10 cores, against the Cython parser of 2.0, with identical
+  outputs (``bench/vcf_rust.py``):
 
   ====================================  ===============  =======  ================  ================
-  Data                                  Function         2.0      2.1, 1 thread     2.1, 10 threads
+  Data                                  Function         Cython   Rust, 1 thread    Rust, 10 threads
   ====================================  ===============  =======  ================  ================
   1000 Genomes chr22                    ``read_vcf``     194 s    57 s (×3.4)       11 s (×17.5)
   1000 Genomes chr22                    ``vcf_to_zarr``  187 s    57 s (×3.3)       11 s (×16.7)

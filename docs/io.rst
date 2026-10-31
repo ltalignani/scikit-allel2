@@ -14,7 +14,8 @@ parser written in Rust, which reads lines on several threads. The `n_threads`
 parameter sets how many; by default, all the CPU cores the process may run on,
 at most the value of the ``OMP_NUM_THREADS`` environment variable if it is set.
 Pass ``n_threads=1`` to read on one thread, for instance in each task of a Dask
-cluster.
+cluster; any value other than `None` or an integer of at least 1 raises a
+:class:`ValueError`.
 
 A file compressed with bgzip is also decompressed on several threads. With
 `region`, a bgzip-compressed file is read from its index (``.tbi`` or
@@ -33,7 +34,8 @@ same results on one thread:
 
 Set the ``ALLEL2_BACKEND`` environment variable to ``cython`` to use the Cython
 parser for every read, for instance to compare the two parsers or to work around
-a bug; ``rust``, the default, uses the Rust parser where it can. The parser
+a bug; ``rust``, the default, uses the Rust parser where it can, and any other
+value raises a :class:`ValueError`. The parser
 chosen for each read, and the reason for using the Cython one, are logged at the
 debug level by the ``allel2.io.vcf_read`` logger::
 

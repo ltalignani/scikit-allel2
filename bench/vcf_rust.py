@@ -14,6 +14,7 @@ field; the script stops at the first difference. It prints a Markdown table of
 the timings.
 """
 import argparse
+import functools
 import os
 import shutil
 import tempfile
@@ -49,34 +50,38 @@ def zarr_arrays(group, prefix=''):
     return arrays
 
 
-def bench_read_vcf(path, region, backend, n_threads, reference):
+# Each bench function reads `path` with a parser and returns the time taken and
+# its output, checked to be identical to `expected`, the output of the first
+# run, unless None.
+
+def bench_read_vcf(path, region, backend, n_threads, expected):
     os.environ['ALLEL2_BACKEND'] = backend
     start = time.perf_counter()
     callset = allel2.read_vcf(path, region=region, n_threads=n_threads)
     elapsed = time.perf_counter() - start
-    if reference is None:
+    if expected is None:
         return elapsed, callset
-    assert sorted(reference) == sorted(callset)
-    for k in reference:
-        assert_same_arrays(k, reference[k], callset[k])
-    return elapsed, reference
+    assert sorted(expected) == sorted(callset)
+    for k in expected:
+        assert_same_arrays(k, expected[k], callset[k])
+    return elapsed, expected
 
 
-def bench_vcf_to_zarr(path, region, backend, n_threads, reference, workdir):
+def bench_vcf_to_zarr(workdir, path, region, backend, n_threads, expected):
     os.environ['ALLEL2_BACKEND'] = backend
     output = os.path.join(workdir, '%s-%s.zarr' % (backend, n_threads))
     start = time.perf_counter()
     allel2.vcf_to_zarr(path, output, region=region, n_threads=n_threads)
     elapsed = time.perf_counter() - start
-    if reference is None:
+    if expected is None:
         return elapsed, output
-    expected = zarr_arrays(zarr.open_group(reference, mode='r'))
-    actual = zarr_arrays(zarr.open_group(output, mode='r'))
-    assert sorted(expected) == sorted(actual)
-    for k in expected:
-        assert_same_arrays(k, expected[k], actual[k])
+    expected_arrays = zarr_arrays(zarr.open_group(expected, mode='r'))
+    actual_arrays = zarr_arrays(zarr.open_group(output, mode='r'))
+    assert sorted(expected_arrays) == sorted(actual_arrays)
+    for k in expected_arrays:
+        assert_same_arrays(k, expected_arrays[k], actual_arrays[k])
     shutil.rmtree(output)
-    return elapsed, reference
+    return elapsed, expected
 
 
 def main():
@@ -95,18 +100,20 @@ def main():
     workdir = tempfile.mkdtemp(dir=args.workdir)
     rows = []
     try:
-        for function, bench in ('read_vcf', bench_read_vcf), ('vcf_to_zarr', bench_vcf_to_zarr):
+        benches = [('read_vcf', bench_read_vcf),
+                   ('vcf_to_zarr', functools.partial(bench_vcf_to_zarr, workdir))]
+        for function, bench in benches:
             timings = []
-            reference = None
+            expected = None
             for backend, n_threads in RUNS:
-                kwargs = dict(workdir=workdir) if function == 'vcf_to_zarr' else dict()
-                elapsed, reference = bench(args.path, args.region, backend, n_threads,
-                                           reference, **kwargs)
+                elapsed, expected = bench(args.path, args.region, backend, n_threads,
+                                          expected)
                 timings.append(elapsed)
                 print('  %s %s n_threads=%s: %.1f s' % (function, backend, n_threads,
                                                         elapsed), flush=True)
             rows.append((function, timings))
-            del reference
+            # free the reference output before the next function
+            expected = None
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
