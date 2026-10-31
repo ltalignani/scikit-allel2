@@ -8,6 +8,7 @@ and loading into NumPy arrays, NumPy files, HDF5 files or Zarr array stores.
 """
 import gzip
 import logging
+from numbers import Integral, Real
 import os
 import re
 from collections import namedtuple, defaultdict
@@ -1850,27 +1851,74 @@ _RUST_FIELDS = ('variants/POS', 'variants/QUAL', 'variants/numalt', 'variants/al
 _RUST_STRING_FIELDS = ('variants/CHROM', 'variants/ID', 'variants/REF', 'variants/ALT')
 
 
-def _rust_string_dtype(t):
-    """The dtype the parser stores strings of type `t` in (object for
-    StringDType, converted afterwards) if the Rust parser handles it, else None."""
+def _rust_string_code(t):
+    """The dtype code ('O' or 'S<width>') the Rust parser stores strings of
+    type `t` with (objects for StringDType, converted afterwards), or None if
+    it does not handle `t`."""
     t = np.dtype(t)
     if t.kind in 'OT':
-        return np.dtype(object)
+        return 'O'
     if t.kind == 'S' and t.itemsize > 0:
-        return t
+        return 'S%d' % t.itemsize
     return None
 
 
-def _cython_fields_reason(fields, types):
+def _is_info_field(f):
+    # as in the Cython parser, the variants fields left are INFO fields
+    return (f.startswith('variants/') and f not in _RUST_FIELDS and
+            f not in _RUST_STRING_FIELDS and not f.startswith('variants/FILTER_'))
+
+
+def _rust_info_code(t, number):
+    """The dtype code the Rust parser stores an INFO field of type `t` with:
+    'b1' for flags, as for any field of number 0, 'i1' to 'u8', 'f4', 'f8',
+    or a string code; None if it does not handle `t`."""
+    try:
+        t = np.dtype(t)
+    except TypeError:
+        return None
+    if t == np.dtype(bool) or number == 0:
+        return 'b1'
+    if t.kind in 'iu' or t in (np.dtype('f4'), np.dtype('f8')):
+        return '%s%d' % (t.kind, t.itemsize)
+    return _rust_string_code(t)
+
+
+def _rust_info_fill(code, fill):
+    """`fill` as the Rust parser takes it for an INFO field of dtype `code`,
+    None for the default; raises TypeError if the Rust parser does not
+    handle it."""
+    if fill is None or code[0] not in 'iuf':
+        # the Cython parser ignores fills of flags and strings
+        return None
+    if isinstance(fill, Integral):
+        return int(fill)
+    if code[0] == 'f' and isinstance(fill, Real):
+        return float(fill)
+    raise TypeError('fill %r' % (fill,))
+
+
+def _cython_fields_reason(fields, types, numbers, fills):
     """Why `fields` must be read by the Cython parser, or None if the Rust
     parser can read them."""
     for f in fields:
         if f in _RUST_FIELDS or f.startswith('variants/FILTER_'):
             continue
         if f in _RUST_STRING_FIELDS:
-            if _rust_string_dtype(types[f]) is None:
+            if _rust_string_code(types[f]) is None:
                 return ('type %r of field %r is not yet handled by the Rust parser'
                         % (types[f], f))
+            continue
+        if _is_info_field(f):
+            code = _rust_info_code(types[f], numbers[f])
+            if code is None:
+                return ('type %r of field %r is not handled by the Rust parser'
+                        % (types[f], f))
+            try:
+                _rust_info_fill(code, fills.get(f))
+            except TypeError:
+                return ('fill %r of field %r is not handled by the Rust parser'
+                        % (fills[f], f))
             continue
         if f == 'calldata/GT':
             if _rust_genotype_dtype(types[f]) is None:
@@ -1889,8 +1937,18 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
         if 'variants/' + f in fields and requested is not None and requested != np.dtype(t):
             warnings.warn('only %s supported for %s field, ignoring requested type: %r'
                           % (t, f, requested))
-    string_types = {f: _rust_string_dtype(types[f]).str
+    string_types = {f: _rust_string_code(types[f])
                     for f in fields if f in _RUST_STRING_FIELDS}
+    infos = list()
+    for f in sorted((f for f in fields if _is_info_field(f)), key=lambda f: f.encode()):
+        t, n = types[f], numbers[f]
+        code = _rust_info_code(t, n)
+        if code == 'b1' and t != np.dtype(bool):
+            # as the Cython parser does, which shows the type it parses with
+            t = np.dtype(object) if np.dtype(t).kind == 'T' else t
+            warnings.warn('cannot have non-bool dtype for field with number 0, '
+                          'ignoring type %r' % t)
+        infos.append((f[len('variants/'):], code, n, _rust_info_fill(code, fills.get(f))))
     gt = None
     if 'calldata/GT' in fields:
         t = _rust_genotype_dtype(types['calldata/GT'])
@@ -1898,7 +1956,8 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
     return RustVCFChunkIterator(path, chunk_length=chunk_length, samples=headers.samples,
                                 loc_samples=loc_samples.astype(bool).tolist(),
                                 fields=fields, string_types=string_types,
-                                alt_number=numbers.get('variants/ALT', 1), gt=gt)
+                                alt_number=numbers.get('variants/ALT', 1), infos=infos,
+                                gt=gt)
 
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
@@ -1950,7 +2009,7 @@ def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,
 
     # setup chunks iterator
     if rust_path is not None:
-        reason = _cython_fields_reason(fields, types)
+        reason = _cython_fields_reason(fields, types, numbers, fills)
         if reason is not None:
             _log_fallback(rust_path, reason)
             rust_path = None

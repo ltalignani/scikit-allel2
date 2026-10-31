@@ -139,6 +139,7 @@ FIELDS = [
     ['FILTER_PASS'],
     None,
     'filters',
+    'infos',
 ]
 
 GT_OPTIONS = (
@@ -171,10 +172,13 @@ def edge_vcf(tmp_path):
 
 
 def _fields(path, fields):
-    # 'filters': the fixed and computed fields, and every declared filter
+    # 'filters': the fixed and computed fields, and every declared filter;
+    # 'infos': POS and every declared INFO field
     if fields == 'filters':
         filters = ['FILTER_' + f for f in read_vcf_headers(path).filters]
         return FIXED_FIELDS + filters + ['calldata/GT']
+    if fields == 'infos':
+        return ['POS'] + ['variants/' + k for k in read_vcf_headers(path).infos]
     return fields
 
 
@@ -262,6 +266,94 @@ def test_fixed_options_computed_only(options, monkeypatch, caplog):
     # numalt, altlen and is_snp without ALT nor REF
     assert_rust_matches_cython(os.path.join(DATA, 'altlen.vcf'), monkeypatch, caplog,
                                fields=['numalt', 'altlen', 'is_snp'], **options)
+
+
+@pytest.mark.parametrize('fn', FILES)
+@pytest.mark.parametrize('chunk_length', [1, 3, 2**16])
+def test_all_variants_fields(fn, chunk_length, monkeypatch, caplog):
+    # without samples, '*' is every variants field
+    assert_rust_matches_cython(os.path.join(DATA, fn), monkeypatch, caplog,
+                               fields='*', samples=[], chunk_length=chunk_length)
+
+
+INFO_INTEGERS = ['NS', 'AN', 'AC', 'DP', 'BaseCounts', 'ALTLEN']
+INFO_FLOATS = ['AF', 'ABHet', 'FS', 'Dels']
+INFO_STRINGS = ['AA', 'EFF', 'ANN']
+
+INFO_OPTIONS = (
+    [{'types': {f: t for f in INFO_INTEGERS}}
+     for t in ('i1', 'i2', 'i8', 'u1', 'u2', 'u4', 'u8', 'f4', 'f8', bool)] +
+    [{'types': {f: t for f in INFO_FLOATS}} for t in ('f8', 'i4', 'u1', bool)] +
+    [{'types': {f: t for f in INFO_STRINGS}} for t in ('S1', 'S3', 'S50', 'O', 'T')] +
+    [{'types': {'DB': 'i4', 'H2': 'S2', 'DS': 'f4'}},
+     {'numbers': {'AC': 1, 'AF': 3, 'DP': 2, 'AA': 2, 'BaseCounts': 2, 'EFF': 4, 'DB': 2}},
+     {'numbers': {'AA': 0, 'DP': 0}},
+     {'alt_number': 1},
+     {'alt_number': 3},
+     {'fills': {'DP': -9, 'AF': -1.5, 'AN': 99, 'AC': 7, 'FS': 2}},
+     {'types': {'DP': 'u1', 'AF': 'f8'}, 'fills': {'DP': 3, 'AF': 0}}]
+)
+
+
+@pytest.mark.parametrize('fn', ['sample.vcf', 'test32.vcf', 'test16.vcf', 'ann.vcf',
+                                'altlen.vcf', 'sample.utf8.vcf'])
+@pytest.mark.parametrize('options', INFO_OPTIONS)
+def test_info_options(fn, options, monkeypatch, caplog):
+    path = os.path.join(DATA, fn)
+    assert_rust_matches_cython(path, monkeypatch, caplog,
+                               fields=_fields(path, 'infos'), chunk_length=2, **options)
+
+
+INFO_HEADER = (b'##fileformat=VCFv4.2\n'
+               b'##INFO=<ID=DP,Number=1,Type=Integer,Description="">\n'
+               b'##INFO=<ID=AC,Number=A,Type=Integer,Description="">\n'
+               b'##INFO=<ID=AF,Number=.,Type=Float,Description="">\n'
+               b'##INFO=<ID=AA,Number=1,Type=String,Description="">\n'
+               b'##INFO=<ID=CS,Number=2,Type=String,Description="">\n'
+               b'##INFO=<ID=DB,Number=0,Type=Flag,Description="">\n'
+               b'#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n')
+
+INFO_LINES = (INFO_HEADER +
+              b'2L\t1\t.\tA\tC,G\t.\t.\tDP=5;AC=1,2;AF=0.5,0.25;AA=T;CS=ab,cd;DB\n'
+              b'2L\t2\t.\tA\tC\t.\t.\t.;DP=5\n'
+              b'2L\t3\t.\tA\tC\t.\t.\tDP=5;;AF=.,0.3;;\n'
+              b'2L\t4\t.\tA\tC\t.\t.\t=5;DP=7;=;AA=x=y\n'
+              b'2L\t5\t.\tA\tC\t.\t.\tDP;AF=;AA=;CS=,;DB=0\n'
+              b'2L\t6\t.\tA\tC\t.\t.\tDP=1,2,3;AC=x,4,5;AF=1e3x,inf,nan\n'
+              b'2L\t7\t.\tA\tC\t.\t.\tAA=ABCDEF;AA=X;CS=long,str;CS=,y;DP=3;DP=.\n'
+              b'2L\t8\t.\tA\tC\t.\t.\tXX=1;YY;DP= 12;AF=-0x1p-2\n'
+              b'2L\t9\t.\tA\tC\t.\t.\tDP=99999999999;AC=-129,300\n'
+              b'2L\t10\t.\tA\tC\t.\t.\t\n'
+              b'2L\t11\t.\tA\tC\t.\t.\t\t\n'
+              b'2L\t12\t.\tA\tC\t.\n'
+              b'2L\t13\t.\tA\tC\t.\t.\tAA=\xc3\xa9;DB\tGT\n'
+              b'2L\t14\t.\tA\tC\t.\t.\tDP=4;AA=end')
+
+
+@pytest.mark.parametrize('fields', [
+    ['DP', 'AC', 'AF', 'AA', 'CS', 'DB'],
+    ['POS', 'XX', 'YY'],
+    ['AA'],
+    ['DB', 'DP'],
+])
+@pytest.mark.parametrize('options', [
+    {},
+    {'types': {'AA': 'S3', 'CS': 'S2'}},
+    {'types': {'DP': 'i1', 'AC': 'u1', 'AF': 'f8'}, 'fills': {'DP': 0}},
+    {'numbers': {'DP': 2, 'AF': 1, 'CS': 1}, 'alt_number': 3},
+])
+@pytest.mark.parametrize('gz', [False, True])
+def test_info_edge_cases(fields, options, gz, tmp_path, monkeypatch, caplog):
+    if gz:
+        import gzip
+        path = tmp_path / 'info.vcf.gz'
+        with gzip.open(path, 'wb') as f:
+            f.write(INFO_LINES)
+    else:
+        path = tmp_path / 'info.vcf'
+        path.write_bytes(INFO_LINES)
+    assert_rust_matches_cython(str(path), monkeypatch, caplog, fields=fields,
+                               chunk_length=3, **options)
 
 
 @pytest.mark.parametrize('samples', [['NA00002'], ['NA00003', 'NA00001'], [], [0, 2]])
@@ -393,9 +485,8 @@ def test_exclude_and_rename_fields(monkeypatch, caplog):
 
 @pytest.mark.parametrize('fields, field', [
     (['POS', 'GT', 'GQ'], 'calldata/GQ'),
-    (['POS', 'DP'], 'variants/DP'),
-    # all fields include INFO fields
-    ('*', 'variants/'),
+    # all fields include FORMAT fields
+    ('*', 'calldata/'),
 ])
 def test_fallback_unsupported_field(fields, field, monkeypatch, caplog):
     callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
@@ -413,6 +504,37 @@ def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
     _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
           fields=['POS', 'GT', 'CHROM', 'REF'], types=types)
     assert field in _reason(caplog)
+
+
+@pytest.mark.parametrize('kwargs', [
+    {'types': {'DP': 'f2'}},
+    {'types': {'DP': 'U3'}},
+    {'types': {'AA': 'S'}},
+    {'types': {'DP': 'c8'}},
+    {'fills': {'DP': 1.5}},
+    {'fills': {'AF': 'x'}},
+])
+def test_fallback_info(kwargs, monkeypatch, caplog):
+    # INFO fields that the Rust parser does not cover are read by the Cython one
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        try:
+            _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
+                  fields=['POS', 'DP', 'AF', 'AA'], **kwargs)
+        except (TypeError, ValueError):
+            # the Cython parser may reject the fill
+            pass
+    field = list(list(kwargs.values())[0])[0]
+    assert 'variants/' + field in _reason(caplog)
+
+
+def test_flag_type_warning(monkeypatch, caplog):
+    # like the Cython parser, a field of number 0 is a flag
+    for backend in 'cython', 'rust':
+        with pytest.warns(UserWarning, match='cannot have non-bool dtype'):
+            callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
+                            backend=backend, fields=['DB'], types={'DB': 'i4'})
+        assert np.dtype(bool) == callset['variants/DB'].dtype
 
 
 def test_fallback_rejected_type(monkeypatch, caplog):
