@@ -61,7 +61,10 @@ is not supported). It can be installed via pip::
     $ pip install scikit-allel2
 
 This will install `scikit-allel2` along with its required dependencies
-(numpy_, dask_ and zarr_). Some features of `scikit-allel2` require
+(numpy_, dask_ and zarr_). Wheels are provided for Linux (x86-64 and
+ARM64) and macOS; building from the source distribution requires a C compiler
+and a `Rust <https://www.rust-lang.org/tools/install>`_ toolchain, for the
+VCF parser. Some features of `scikit-allel2` require
 optional third-party packages to be installed, including scipy_,
 matplotlib_, seaborn_, pandas_, scikit-learn_ and h5py_. To
 install `scikit-allel2` with all optional dependencies via pip, do::
