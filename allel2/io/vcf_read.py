@@ -56,9 +56,6 @@ logger = logging.getLogger(__name__)
 BACKEND_VARIABLE = 'ALLEL2_BACKEND'
 BACKENDS = ('rust', 'cython')
 
-# genotype dtypes handled by the Rust parser
-_RUST_GENOTYPE_DTYPES = {np.dtype(t) for t in ('i1', 'i2', 'i4', 'i8', 'u1', 'u2', 'u4', 'u8')}
-
 
 def _prep_fields_param(fields):
     """Prepare the `fields` parameter, and determine whether or not to store samples."""
@@ -1833,17 +1830,6 @@ def _cython_input_reason(input, region, transformers):
     return None
 
 
-def _rust_genotype_dtype(t):
-    """The dtype of genotypes of type `t` (a dtype or 'genotype/<dtype>') if the
-    Rust parser handles it, else None."""
-    if isinstance(t, str):
-        if not t.startswith('genotype/'):
-            return None
-        t = t[len('genotype/'):]
-    t = np.dtype(t)
-    return t if t in _RUST_GENOTYPE_DTYPES else None
-
-
 # fields read by the Rust parser whatever their type: numbers, computed fields
 # (FILTER flags, strings and calldata/GT are checked separately)
 _RUST_FIELDS = ('variants/POS', 'variants/QUAL', 'variants/numalt', 'variants/altlen',
@@ -1869,30 +1855,66 @@ def _is_info_field(f):
             f not in _RUST_STRING_FIELDS and not f.startswith('variants/FILTER_'))
 
 
+def _rust_number_code(t):
+    """The dtype code ('i1' to 'u8', 'f4' or 'f8') of number type `t` if the
+    Rust parser handles it, else None. The Cython parser skips the types of
+    other byte orders."""
+    if t.isnative and (t.kind in 'iu' or t in (np.dtype('f4'), np.dtype('f8'))):
+        return '%s%d' % (t.kind, t.itemsize)
+    return None
+
+
 def _rust_info_code(t, number):
     """The dtype code the Rust parser stores an INFO field of type `t` with:
-    'b1' for flags, as for any field of number 0, 'i1' to 'u8', 'f4', 'f8',
-    or a string code; None if it does not handle `t`."""
+    'b1' for flags, as for any field of number 0, a number code or a string
+    code; None if it does not handle `t`."""
     try:
         t = np.dtype(t)
     except TypeError:
         return None
-    if number < 0 or not t.isnative:
-        # the Cython parser rejects or skips these
+    if number < 0:
+        # the Cython parser rejects these
         return None
     if t == np.dtype(bool) or number == 0:
         return 'b1'
-    if t.kind in 'iu' or t in (np.dtype('f4'), np.dtype('f8')):
-        return '%s%d' % (t.kind, t.itemsize)
-    return _rust_string_code(t)
+    return _rust_number_code(t) or _rust_string_code(t)
 
 
-def _rust_info_fill(code, fills, f):
-    """The fill of INFO field `f` of dtype `code` as the Rust parser takes it,
-    None for the default; raises TypeError if the Rust parser does not
-    handle it."""
-    if f not in fills or code[0] not in 'iuf':
-        # the Cython parser ignores fills of flags and strings
+def _rust_format_code(f, t, number):
+    """The dtype code the Rust parser stores a FORMAT field `f` of type `t`
+    with: 'gt:' or 'ac:' before an integer code for genotypes, of type
+    'genotype/<dtype>' or an integer type for GT, and their allele counts, of
+    type 'genotype_ac/<dtype>'; a number code or a string code otherwise.
+    None if it does not handle `t`."""
+    if number < 0:
+        return None
+    prefix = ''
+    if isinstance(t, str) and t.startswith(('genotype/', 'genotype_ac/')):
+        kind, t = t.split('/', 1)
+        prefix = 'gt:' if kind == 'genotype' else 'ac:'
+    try:
+        t = np.dtype(t)
+    except TypeError:
+        return None
+    if f == 'calldata/GT' and t.kind in 'iu':
+        prefix = prefix or 'gt:'
+    if prefix:
+        code = _rust_number_code(t)
+        return prefix + code if code and t.kind in 'iu' else None
+    if t == np.dtype(bool):
+        # the Cython parser skips these
+        return None
+    return _rust_number_code(t) or _rust_string_code(t)
+
+
+def _rust_fill(code, fills, f):
+    """The fill of INFO or FORMAT field `f` of dtype `code` as the Rust parser
+    takes it, None for the default; raises TypeError if the Rust parser does
+    not handle it."""
+    dtype = code[len('gt:'):] if code.startswith('gt:') else code
+    if f not in fills or dtype[0] not in 'iuf':
+        # the Cython parser ignores fills of flags, strings and allele counts
+        # ('ac:' codes, whose dtype starts with 'a')
         return None
     fill = fills[f]
     if isinstance(fill, Integral):
@@ -1910,26 +1932,20 @@ def _cython_fields_reason(fields, types, numbers, fills):
             continue
         if f in _RUST_STRING_FIELDS:
             if _rust_string_code(types[f]) is None:
-                return ('type %r of field %r is not yet handled by the Rust parser'
+                return ('type %r of field %r is not handled by the Rust parser'
                         % (types[f], f))
             continue
         if _is_info_field(f):
             code = _rust_info_code(types[f], numbers[f])
-            if code is None:
-                return ('type %r or number %r of field %r is not handled by the Rust parser'
-                        % (types[f], numbers[f], f))
-            try:
-                _rust_info_fill(code, fills, f)
-            except TypeError:
-                return ('fill %r of field %r is not handled by the Rust parser'
-                        % (fills[f], f))
-            continue
-        if f == 'calldata/GT':
-            if _rust_genotype_dtype(types[f]) is None:
-                return ('type %r of field %r is not yet handled by the Rust parser'
-                        % (types[f], f))
-            continue
-        return 'field %r is not yet handled by the Rust parser' % f
+        else:
+            code = _rust_format_code(f, types[f], numbers[f])
+        if code is None:
+            return ('type %r or number %r of field %r is not handled by the Rust parser'
+                    % (types[f], numbers[f], f))
+        try:
+            _rust_fill(code, fills, f)
+        except TypeError:
+            return 'fill %r of field %r is not handled by the Rust parser' % (fills[f], f)
     return None
 
 
@@ -1953,16 +1969,17 @@ def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
             t = np.dtype(object) if np.dtype(t).kind == 'T' else t
             warnings.warn('cannot have non-bool dtype for field with number 0, '
                           'ignoring type %r' % t)
-        infos.append((f[len('variants/'):], code, n, _rust_info_fill(code, fills, f)))
-    gt = None
-    if 'calldata/GT' in fields:
-        t = _rust_genotype_dtype(types['calldata/GT'])
-        gt = (t.name, numbers['calldata/GT'], fills.get('calldata/GT'))
+        infos.append((f[len('variants/'):], code, n, _rust_fill(code, fills, f)))
+    formats = list()
+    for f in fields:
+        if f.startswith('calldata/'):
+            code = _rust_format_code(f, types[f], numbers[f])
+            formats.append((f[len('calldata/'):], code, numbers[f], _rust_fill(code, fills, f)))
     return RustVCFChunkIterator(path, chunk_length=chunk_length, samples=headers.samples,
                                 loc_samples=loc_samples.astype(bool).tolist(),
                                 fields=fields, string_types=string_types,
                                 alt_number=numbers.get('variants/ALT', 1), infos=infos,
-                                gt=gt)
+                                formats=formats)
 
 
 def _iter_vcf_stream(stream, fields, exclude_fields, types, numbers, alt_number,

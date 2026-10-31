@@ -140,6 +140,8 @@ FIELDS = [
     None,
     'filters',
     'infos',
+    'formats',
+    ['GT', 'GQ', 'calldata/DP', 'HQ'],
 ]
 
 GT_OPTIONS = (
@@ -173,12 +175,15 @@ def edge_vcf(tmp_path):
 
 def _fields(path, fields):
     # 'filters': the fixed and computed fields, and every declared filter;
-    # 'infos': POS and every declared INFO field
+    # 'infos': POS and every declared INFO field; 'formats': POS and every
+    # declared FORMAT field
     if fields == 'filters':
         filters = ['FILTER_' + f for f in read_vcf_headers(path).filters]
         return FIXED_FIELDS + filters + ['calldata/GT']
     if fields == 'infos':
         return ['POS'] + ['variants/' + k for k in read_vcf_headers(path).infos]
+    if fields == 'formats':
+        return ['POS'] + ['calldata/' + k for k in read_vcf_headers(path).formats]
     return fields
 
 
@@ -270,10 +275,101 @@ def test_fixed_options_computed_only(options, monkeypatch, caplog):
 
 @pytest.mark.parametrize('fn', FILES)
 @pytest.mark.parametrize('chunk_length', [1, 3, 2**16])
-def test_all_variants_fields(fn, chunk_length, monkeypatch, caplog):
-    # without samples, '*' is every variants field
+@pytest.mark.parametrize('samples', [None, []])
+def test_all_fields(fn, chunk_length, samples, monkeypatch, caplog):
+    # without samples, '*' is every variants field; none falls back
     assert_rust_matches_cython(os.path.join(DATA, fn), monkeypatch, caplog,
-                               fields='*', samples=[], chunk_length=chunk_length)
+                               fields='*', samples=samples, chunk_length=chunk_length)
+    assert FALLBACK not in caplog.text
+
+
+FORMAT_INTEGERS = ['GQ', 'DP', 'HQ', 'AD', 'PL', 'MQ0']
+FORMAT_STRINGS = ['ZZ', 'GTXT']
+
+FORMAT_OPTIONS = (
+    [{'types': {'calldata/' + f: t for f in FORMAT_INTEGERS}}
+     for t in ('i1', 'i8', 'u1', 'u2', 'u8', 'f4', 'f8', 'S2', 'O', 'genotype/i2',
+               'genotype_ac/u1')] +
+    [{'types': {'GT': t}} for t in ('genotype_ac/i1', 'genotype_ac/u8', 'i2', 'u4',
+                                    'f4', 'S3', 'O', 'T')] +
+    [{'types': {'calldata/AB': t, 'GQ': t}} for t in ('f8', 'i4', 'S5')] +
+    [{'types': {f: t for f in FORMAT_STRINGS}} for t in ('S1', 'S4', 'O', 'T')] +
+    [{'numbers': {'GT': 3, 'HQ': 1, 'AD': 4, 'calldata/DP': 2, 'PL': 1, 'ZZ': 2}},
+     {'numbers': {'GT': 1, 'GQ': 0}},
+     {'types': {'GT': 'genotype_ac/i1'}, 'numbers': {'GT': 3}},
+     {'alt_number': 1},
+     {'alt_number': 4},
+     {'fills': {'GT': -9, 'GQ': 9, 'HQ': -2, 'calldata/AB': 0.5, 'calldata/DP': 3}},
+     {'types': {'GT': 'genotype_ac/i2'}, 'fills': {'GT': 5}},
+     {'samples': ['NA00003', 'NA00001']},
+     {'samples': [1]},
+     {'samples': []}]
+)
+
+
+@pytest.mark.parametrize('fn', FILES)
+@pytest.mark.parametrize('options', FORMAT_OPTIONS)
+def test_format_options(fn, options, monkeypatch, caplog):
+    path = os.path.join(DATA, fn)
+    assert_rust_matches_cython(path, monkeypatch, caplog,
+                               fields=_fields(path, 'formats'), chunk_length=2, **options)
+
+
+FORMAT_HEADER = (b'##fileformat=VCFv4.2\n'
+                 b'##FORMAT=<ID=GT,Number=1,Type=String,Description="">\n'
+                 b'##FORMAT=<ID=DP,Number=1,Type=Integer,Description="">\n'
+                 b'##FORMAT=<ID=AD,Number=R,Type=Integer,Description="">\n'
+                 b'##FORMAT=<ID=GL,Number=G,Type=Float,Description="">\n'
+                 b'##FORMAT=<ID=FT,Number=1,Type=String,Description="">\n'
+                 b'#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n')
+
+# no more samples than in the header: the Cython parser crashes on them when
+# the first FORMAT key is not read (see test_extra_samples_unrequested_format)
+FORMAT_LINES = (FORMAT_HEADER +
+                b'2L\t1\t.\tA\tC\t.\t.\t.\tGT:DP:AD:GL:FT\t0/1:5:1,4:-1,-2,-3:PASS\t'
+                b'1|1:.:.:.:.\t./.:::\n'
+                b'2L\t2\t.\tA\tC\t.\t.\t.\tDP:XX:GT\t3:x:0/1\t4:y\t:z:1/0/2\n'
+                b'2L\t3\t.\tA\tC\t.\t.\t.\tGT:DP:DP:FT\t0:3:4:ABCDEF\t1:5\t.:6:.:X\n'
+                b'2L\t4\t.\tA\tC\t.\t.\t.\t.:GT:.\t0/1\t1/1:a\t0|0\n'
+                b'2L\t5\t.\tA\tC\t.\t.\t.\tGT:AD\t0/1:1,2,3,4\t-1/0:x,2\t2/3:99999999999,-129\n'
+                b'2L\t6\t.\tA\tC\t.\t.\t.\tXX:GT\t1:0/1\t2:1/1\t3:0/0\n'
+                b'2L\t7\t.\tA\tC\t.\t.\t.\tGT:GL\t0/1:1e3x,inf\t1/1:nan,-0x1p3\t0/0: 4,.\n'
+                b'2L\t8\t.\tA\tC\t.\t.\t.\tGT:FT\t0/1:\xc3\xa9,b\t1/1:,c\t0/0\n'
+                b'2L\t9\t.\tA\tC\t.\t.\t.\tGT\n'
+                b'2L\t10\t.\tA\tC\t.\t.\t.\tGT\t\n'
+                b'2L\t11\t.\tA\tC\t.\t.\t.\n'
+                b'2L\t12\t.\tA\tC\t.\t.\t.\tGT:DP\t0/1:2\t1/1:3\n'
+                b'2L\t13\t.\tA\tC\t.\t.\t.\tGT:DP\t1/2/3/4:7\t0|1|1:8\t2:9')
+
+
+@pytest.mark.parametrize('fields', [
+    ['GT', 'calldata/DP', 'AD', 'GL', 'FT'],
+    ['calldata/DP', 'FT'],
+    ['GT', 'calldata/XX'],
+    ['AD'],
+])
+@pytest.mark.parametrize('options', [
+    {},
+    {'types': {'GT': 'genotype_ac/i1', 'FT': 'S2', 'calldata/DP': 'u1'}},
+    {'types': {'GT': 'genotype_ac/u2', 'AD': 'genotype/i1', 'GL': 'f8'},
+     'numbers': {'GT': 3}},
+    {'numbers': {'GT': 3, 'calldata/DP': 2, 'AD': 1, 'FT': 2}, 'alt_number': 2},
+    {'fills': {'GT': 7, 'calldata/DP': 0, 'GL': 1.5}},
+    {'samples': ['S3', 'S1']},
+    {'samples': ['S2']},
+])
+@pytest.mark.parametrize('gz', [False, True])
+def test_format_edge_cases(fields, options, gz, tmp_path, monkeypatch, caplog):
+    if gz:
+        import gzip
+        path = tmp_path / 'format.vcf.gz'
+        with gzip.open(path, 'wb') as f:
+            f.write(FORMAT_LINES)
+    else:
+        path = tmp_path / 'format.vcf'
+        path.write_bytes(FORMAT_LINES)
+    assert_rust_matches_cython(str(path), monkeypatch, caplog, fields=fields,
+                               chunk_length=3, **options)
 
 
 INFO_INTEGERS = ['NS', 'AN', 'AC', 'DP', 'BaseCounts', 'ALTLEN']
@@ -483,21 +579,33 @@ def test_exclude_and_rename_fields(monkeypatch, caplog):
         np.testing.assert_array_equal(expected[k], actual[k], err_msg=k)
 
 
-@pytest.mark.parametrize('fields, field', [
-    (['POS', 'GT', 'GQ'], 'calldata/GQ'),
-    # all fields include FORMAT fields
-    ('*', 'calldata/'),
-])
-def test_fallback_unsupported_field(fields, field, monkeypatch, caplog):
-    callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
-                    fields=fields)
-    assert field in _reason(caplog)
-    assert 9 == len(callset['variants/POS'])
+def test_extra_samples_unrequested_format(tmp_path, monkeypatch, caplog):
+    # the Cython parser crashes here, when the first FORMAT key is not read
+    path = tmp_path / 'extra.vcf'
+    path.write_bytes(FORMAT_HEADER +
+                     b'2L\t6\t.\tA\tC\t.\t.\t.\tXX:GT\t1:0/1\t2:1/1\t3:0/0\t4:0/1\n')
+    with pytest.warns(UserWarning, match='more samples than given in header') as caught:
+        callset = _read(str(path), monkeypatch, caplog, fields=['GT'])
+    assert RUST in caplog.text
+    assert ['more samples than given in header; field: CALLDATA; variant: 0 (2L\x00:6); '
+            'sample: 3:0 (unknown:unknown)'] == [str(w.message) for w in caught]
+    assert [[[0, 1], [1, 1], [0, 0]]] == callset['calldata/GT'].tolist()
+
+
+def test_all_fields_without_fallback(monkeypatch, caplog):
+    callset = _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog, fields='*')
+    assert RUST in caplog.text
+    assert FALLBACK not in caplog.text
+    assert (9, 3) == callset['calldata/GQ'].shape
 
 
 @pytest.mark.parametrize('types, field', [
-    ({'GT': 'f4'}, 'calldata/GT'),
-    ({'GT': 'genotype_ac/i1'}, 'calldata/GT'),
+    ({'GT': 'genotype/f4'}, 'calldata/GT'),
+    ({'GT': 'genotype_ac/f4'}, 'calldata/GT'),
+    ({'GT': '>i2'}, 'calldata/GT'),
+    ({'GT': bool}, 'calldata/GT'),
+    ({'GT': 'f2'}, 'calldata/GT'),
+    ({'GT': 'U3'}, 'calldata/GT'),
     ({'REF': 'S'}, 'variants/REF'),
 ])
 def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
@@ -507,22 +615,29 @@ def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
 
 
 @pytest.mark.parametrize('field, kwargs', [
-    ('DP', {'types': {'DP': 'f2'}}),
-    ('DP', {'types': {'DP': 'U3'}}),
-    ('AA', {'types': {'AA': 'S'}}),
-    ('DP', {'types': {'DP': 'c8'}}),
-    ('DP', {'types': {'DP': '>i4'}}),
-    ('AF', {'types': {'AF': '>f8'}}),
-    ('DP', {'fills': {'DP': 1.5}}),
-    ('AF', {'fills': {'AF': 'x'}}),
-    ('DP', {'fills': {'DP': None}}),
-    ('DP', {'numbers': {'DP': -1}}),
+    ('variants/DP', {'types': {'DP': 'f2'}}),
+    ('variants/DP', {'types': {'DP': 'U3'}}),
+    ('variants/AA', {'types': {'AA': 'S'}}),
+    ('variants/DP', {'types': {'DP': 'c8'}}),
+    ('variants/DP', {'types': {'DP': '>i4'}}),
+    ('variants/AF', {'types': {'AF': '>f8'}}),
+    ('variants/DP', {'fills': {'DP': 1.5}}),
+    ('variants/AF', {'fills': {'AF': 'x'}}),
+    ('variants/DP', {'fills': {'DP': None}}),
+    ('variants/DP', {'numbers': {'DP': -1}}),
+    ('calldata/GQ', {'types': {'calldata/GQ': 'f2'}}),
+    ('calldata/GQ', {'types': {'calldata/GQ': bool}}),
+    ('calldata/GQ', {'types': {'calldata/GQ': '>u2'}}),
+    ('calldata/GQ', {'fills': {'calldata/GQ': None}}),
+    ('calldata/GQ', {'fills': {'calldata/GQ': 1.5}}),
+    ('calldata/GQ', {'numbers': {'calldata/GQ': -1}}),
+    ('calldata/GT', {'fills': {'GT': None}}),
 ])
-def test_fallback_info(field, kwargs, monkeypatch, caplog):
+def test_fallback_uncovered_type(field, kwargs, monkeypatch, caplog):
     # INFO fields that the Rust parser does not cover are read by the Cython
     # one, which skips some of them and rejects others
     path = os.path.join(DATA, 'sample.vcf')
-    fields = ['POS', 'DP', 'AF', 'AA']
+    fields = ['POS', 'DP', 'AF', 'AA', 'GT', 'calldata/GQ']
     monkeypatch.setenv('ALLEL2_BACKEND', 'cython')
     try:
         with warnings.catch_warnings():
@@ -538,7 +653,7 @@ def test_fallback_info(field, kwargs, monkeypatch, caplog):
         else:
             with pytest.raises(expected):
                 _read(path, monkeypatch, caplog, fields=fields, **kwargs)
-    assert 'variants/' + field in _reason(caplog)
+    assert field in _reason(caplog)
 
 
 def test_flag_type_warning(monkeypatch, caplog):
