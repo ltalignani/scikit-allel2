@@ -6,8 +6,11 @@
 //! field names to NumPy arrays. The Cython parser is the reference: values,
 //! dtypes, shapes and warning messages match it, quirks included.
 //!
-//! Fields handled so far: `variants/POS` and `calldata/GT`.
+//! Fields handled so far: the fixed columns but INFO (CHROM, POS, ID, REF,
+//! ALT, QUAL and the FILTER flags), the computed fields `numalt`, `altlen`
+//! and `is_snp`, and `calldata/GT`.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::sync::Mutex;
@@ -16,7 +19,7 @@ use flate2::read::MultiGzDecoder;
 use numpy::{Element, IntoPyArray, PyArrayMethods};
 use pyo3::exceptions::{PyOSError, PyOverflowError, PyUserWarning, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::{PyBytes, PyDict, PyString, PyTuple};
 
 const BUFFER_SIZE: usize = 1 << 20;
 
@@ -70,6 +73,144 @@ fn strtol(s: &[u8]) -> Int {
     if i == s.len() { Int::Parsed(value) } else { Int::Partial(value) }
 }
 
+/// Outcome of parsing a floating point value the way C `strtod` does in the
+/// Cython parser, with the same cases as `Int`.
+enum Float {
+    Missing,
+    Parsed(f64),
+    Partial(f64),
+    Error,
+}
+
+fn strtod(s: &[u8]) -> Float {
+    if s.is_empty() || s == b"." {
+        return Float::Missing;
+    }
+    match float_prefix(s) {
+        None => Float::Error,
+        Some((n, v)) if n == s.len() => Float::Parsed(v),
+        Some((_, v)) => Float::Partial(v),
+    }
+}
+
+fn is_c_space(c: u8) -> bool {
+    matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)
+}
+
+/// The longest prefix of `s` that C `strtod` parses: its length and value.
+fn float_prefix(s: &[u8]) -> Option<(usize, f64)> {
+    let mut i = 0;
+    while i < s.len() && is_c_space(s[i]) {
+        i += 1;
+    }
+    let number_start = i;
+    let mut sign = 1.0;
+    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+        if s[i] == b'-' {
+            sign = -1.0;
+        }
+        i += 1;
+    }
+    let rest = &s[i..];
+    let starts_with = |word: &[u8]| rest.len() >= word.len() && rest[..word.len()].eq_ignore_ascii_case(word);
+    if starts_with(b"infinity") {
+        return Some((i + 8, sign * f64::INFINITY));
+    }
+    if starts_with(b"inf") {
+        return Some((i + 3, sign * f64::INFINITY));
+    }
+    if starts_with(b"nan") {
+        let mut end = i + 3;
+        // optional "(n-char-sequence)"
+        if s.get(end) == Some(&b'(') {
+            let mut k = end + 1;
+            while k < s.len() && (s[k].is_ascii_alphanumeric() || s[k] == b'_') {
+                k += 1;
+            }
+            if s.get(k) == Some(&b')') {
+                end = k + 1;
+            }
+        }
+        return Some((end, f64::NAN));
+    }
+    if rest.len() > 2 && rest[0] == b'0' && rest[1] | 0x20 == b'x' {
+        if let Some((n, v)) = hex_float(&rest[2..]) {
+            return Some((i + 2 + n, sign * v));
+        }
+    }
+    // decimal: digits, optionally a point and digits, at least one digit,
+    // then an exponent if it has digits
+    let digits = |from: usize| s[from..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let integer = digits(i);
+    let mut end = i + integer;
+    let mut fraction = 0;
+    if s.get(end) == Some(&b'.') {
+        fraction = digits(end + 1);
+        end += 1 + fraction;
+    }
+    if integer + fraction == 0 {
+        return None;
+    }
+    if matches!(s.get(end), Some(b'e' | b'E')) {
+        let mut k = end + 1;
+        if matches!(s.get(k), Some(b'+' | b'-')) {
+            k += 1;
+        }
+        let exponent = digits(k);
+        if exponent > 0 {
+            end = k + exponent;
+        }
+    }
+    // the prefix is ASCII, and correctly rounded like strtod
+    let text = std::str::from_utf8(&s[number_start..end]).ok()?;
+    Some((end, text.parse::<f64>().ok()?))
+}
+
+/// A hexadecimal float after its "0x": length and value, if it has digits.
+fn hex_float(s: &[u8]) -> Option<(usize, f64)> {
+    let mut i = 0;
+    let mut mantissa = 0.0;
+    let mut exponent: i64 = 0;
+    let mut n_digits = 0;
+    let mut point = false;
+    while i < s.len() {
+        let c = s[i];
+        if c == b'.' && !point {
+            point = true;
+        } else if let Some(d) = (c as char).to_digit(16) {
+            mantissa = mantissa * 16.0 + d as f64;
+            n_digits += 1;
+            if point {
+                exponent -= 4;
+            }
+        } else {
+            break;
+        }
+        i += 1;
+    }
+    if n_digits == 0 {
+        return None;
+    }
+    if matches!(s.get(i), Some(b'p' | b'P')) {
+        let mut k = i + 1;
+        let negative = s.get(k) == Some(&b'-');
+        if matches!(s.get(k), Some(b'+' | b'-')) {
+            k += 1;
+        }
+        let start = k;
+        let mut e: i64 = 0;
+        while k < s.len() && s[k].is_ascii_digit() {
+            e = (e * 10 + (s[k] - b'0') as i64).min(1 << 20);
+            k += 1;
+        }
+        if k > start {
+            exponent += if negative { -e } else { e };
+            i = k;
+        }
+    }
+    Some((i, mantissa * 2f64.powi(exponent.clamp(-1 << 20, 1 << 20) as i32)))
+}
+
 /// Integer dtypes of genotype arrays, with C casts from `long`.
 trait Allele: Element + Copy + Send + TryFrom<i128> {
     fn from_long(v: i64) -> Self;
@@ -94,6 +235,7 @@ impl_allele!(i8 => -1, i16 => -1, i32 => -1, i64 => -1,
 enum State {
     Chrom,
     Pos,
+    Qual,
     Calldata,
     Eol,
     Eof,
@@ -104,6 +246,7 @@ impl State {
         match self {
             State::Chrom => "CHROM",
             State::Pos => "POS",
+            State::Qual => "QUAL",
             State::Calldata => "CALLDATA",
             State::Eol => "EOL",
             State::Eof => "EOF",
@@ -118,14 +261,145 @@ struct GtSpec {
     fill: Option<i128>,
 }
 
+/// How a string field is stored: as Python strings in an object array, or as
+/// bytes truncated to a fixed width.
+#[derive(Clone, Copy, PartialEq)]
+enum StrType {
+    Object,
+    Bytes(usize),
+}
+
+impl StrType {
+    /// From a NumPy dtype string, '|O' or '|S<width>'.
+    fn parse(field: &str, dtype: &str) -> PyResult<Self> {
+        let width = dtype.strip_prefix("|S").and_then(|n| n.parse::<usize>().ok());
+        match (dtype, width) {
+            ("|O", _) => Ok(StrType::Object),
+            (_, Some(n)) if n > 0 => Ok(StrType::Bytes(n)),
+            _ => Err(PyValueError::new_err(format!("unsupported dtype {dtype:?} for field {field:?}"))),
+        }
+    }
+}
+
+/// The values of a string field, before conversion to a NumPy array.
+struct StrColumn {
+    kind: StrType,
+    data: Vec<u8>,
+    // end of each value in `data`, for objects only
+    ends: Vec<usize>,
+}
+
+impl StrColumn {
+    fn new(kind: StrType) -> Self {
+        StrColumn { kind, data: Vec::new(), ends: Vec::new() }
+    }
+
+    fn push(&mut self, value: &[u8]) {
+        match self.kind {
+            StrType::Object => {
+                self.data.extend_from_slice(value);
+                self.ends.push(self.data.len());
+            }
+            StrType::Bytes(width) => {
+                let n = value.len().min(width);
+                self.data.extend_from_slice(&value[..n]);
+                self.data.resize(self.data.len() + width - n, 0);
+            }
+        }
+    }
+
+    fn into_numpy<'py>(self, py: Python<'py>, shape: &[usize]) -> PyResult<Bound<'py, PyAny>> {
+        let array = match self.kind {
+            StrType::Object => {
+                let mut values = Vec::with_capacity(self.ends.len());
+                let mut start = 0;
+                for &end in &self.ends {
+                    let bytes = &self.data[start..end];
+                    let value = match std::str::from_utf8(bytes) {
+                        Ok(s) => PyString::new(py, s).into_any(),
+                        // raises the same UnicodeDecodeError as the Cython parser
+                        Err(_) => PyBytes::new(py, bytes).call_method1("decode", ("utf8",))?,
+                    };
+                    values.push(value.unbind());
+                    start = end;
+                }
+                values.into_pyarray(py).into_any()
+            }
+            StrType::Bytes(width) => {
+                self.data.into_pyarray(py).call_method1("view", (format!("S{width}"),))?
+            }
+        };
+        array.call_method1("reshape", (PyTuple::new(py, shape)?,))
+    }
+}
+
+/// The fixed columns and computed fields to store.
+struct FixedSpec {
+    chrom: Option<StrType>,
+    id: Option<StrType>,
+    ref_: Option<StrType>,
+    alt: Option<StrType>,
+    // number of ALT values stored per variant
+    alt_number: usize,
+    numalt: bool,
+    altlen: bool,
+    is_snp: bool,
+    qual: bool,
+    // sorted, as the Cython parser outputs them
+    filters: Vec<Vec<u8>>,
+}
+
+/// What to parse, fixed for the whole file.
+struct Spec {
+    samples: Vec<String>,
+    loc_samples: Vec<bool>,
+    n_samples_out: usize,
+    store_pos: bool,
+    fixed: FixedSpec,
+    gt: Option<GtSpec>,
+}
+
 /// One chunk of parsed data, before conversion to NumPy arrays.
 struct Chunk<T> {
     length: usize,
+    chrom_values: Option<StrColumn>,
     pos: Vec<i32>,
+    id: Option<StrColumn>,
+    ref_: Option<StrColumn>,
+    alt: Option<StrColumn>,
+    numalt: Vec<i32>,
+    altlen: Vec<i32>,
+    is_snp: Vec<bool>,
+    qual: Vec<f32>,
+    // one flag per filter, variant after variant
+    filters: Vec<bool>,
     gt: Vec<T>,
+    // CHROM of the last variant, null-terminated
     chrom: Vec<u8>,
     last_pos: i64,
     warnings: Vec<String>,
+}
+
+impl<T> Chunk<T> {
+    fn new(fixed: &FixedSpec) -> Self {
+        Chunk {
+            length: 0,
+            chrom_values: fixed.chrom.map(StrColumn::new),
+            pos: Vec::new(),
+            id: fixed.id.map(StrColumn::new),
+            ref_: fixed.ref_.map(StrColumn::new),
+            alt: fixed.alt.map(StrColumn::new),
+            numalt: Vec::new(),
+            altlen: Vec::new(),
+            is_snp: Vec::new(),
+            qual: Vec::new(),
+            filters: Vec::new(),
+            gt: Vec::new(),
+            chrom: Vec::new(),
+            last_pos: 0,
+            warnings: Vec::new(),
+        }
+    }
 }
 
 #[pyclass(module = "allel2.opt.io_vcf_read_rs")]
@@ -133,11 +407,7 @@ struct VCFChunkIterator {
     // PyO3 classes must be Sync; the lock is never contended
     reader: Mutex<Box<dyn BufRead + Send>>,
     chunk_length: usize,
-    samples: Vec<String>,
-    loc_samples: Vec<bool>,
-    n_samples_out: usize,
-    store_pos: bool,
-    gt: Option<GtSpec>,
+    spec: Spec,
     // index of the last variant read, -1 before the first
     variant_index: i64,
     eof: bool,
@@ -191,15 +461,7 @@ impl Context<'_> {
 impl VCFChunkIterator {
     /// Parse up to `chunk_length` lines. Runs without the GIL.
     fn parse_chunk<T: Allele>(&mut self, fill: T) -> std::io::Result<Chunk<T>> {
-        let width = self.gt.as_ref().map_or(0, |g| self.n_samples_out * g.number);
-        let mut chunk = Chunk {
-            length: 0,
-            pos: Vec::new(),
-            gt: Vec::new(),
-            chrom: Vec::new(),
-            last_pos: 0,
-            warnings: Vec::new(),
-        };
+        let mut chunk = Chunk::new(&self.spec.fixed);
         let reader = self.reader.get_mut().unwrap_or_else(|e| e.into_inner());
         let mut line = Vec::new();
         while chunk.length < self.chunk_length {
@@ -214,28 +476,10 @@ impl VCFChunkIterator {
                 Some(t) => t,
             };
             let line_end = if terminated { State::Eol } else { State::Eof };
-            if self.gt.is_some() {
-                chunk.gt.resize(chunk.gt.len() + width, fill);
-            }
-            let gt_offset = chunk.gt.len() - width;
-            let pos = parse_line(
-                &line,
-                line_end,
-                self.variant_index,
-                &self.samples,
-                &self.loc_samples,
-                self.gt.as_ref().map(|g| g.number),
-                &mut chunk.gt[gt_offset..],
-                &mut chunk.chrom,
-                &mut chunk.warnings,
-            );
+            let pos = parse_line(&line, line_end, self.variant_index, &self.spec, &mut chunk, fill);
             self.variant_index += 1;
             chunk.length += 1;
             chunk.last_pos = pos;
-            if self.store_pos {
-                // C cast from long, as in the Cython parser
-                chunk.pos.push(pos as i32);
-            }
             if !terminated {
                 self.eof = true;
                 break;
@@ -260,16 +504,50 @@ impl VCFChunkIterator {
         if chunk.length == 0 {
             return Ok(None);
         }
+        let spec = &self.spec;
+        let n = chunk.length;
+        // arrays of one value per variant are 1-D, as in the Cython parser
+        let alt_shape: &[usize] = if spec.fixed.alt_number == 1 { &[n] } else { &[n, spec.fixed.alt_number] };
         let dict = PyDict::new(py);
-        if self.store_pos {
+        if let Some(c) = chunk.chrom_values {
+            dict.set_item("variants/CHROM", c.into_numpy(py, &[n])?)?;
+        }
+        if spec.store_pos {
             dict.set_item("variants/POS", chunk.pos.into_pyarray(py))?;
         }
-        if let Some(g) = &self.gt {
+        if let Some(c) = chunk.id {
+            dict.set_item("variants/ID", c.into_numpy(py, &[n])?)?;
+        }
+        if let Some(c) = chunk.ref_ {
+            dict.set_item("variants/REF", c.into_numpy(py, &[n])?)?;
+        }
+        if let Some(c) = chunk.alt {
+            dict.set_item("variants/ALT", c.into_numpy(py, alt_shape)?)?;
+        }
+        if spec.fixed.numalt {
+            dict.set_item("variants/numalt", chunk.numalt.into_pyarray(py))?;
+        }
+        if spec.fixed.altlen {
+            dict.set_item("variants/altlen", chunk.altlen.into_pyarray(py).reshape(alt_shape)?)?;
+        }
+        if spec.fixed.is_snp {
+            dict.set_item("variants/is_snp", chunk.is_snp.into_pyarray(py))?;
+        }
+        if spec.fixed.qual {
+            dict.set_item("variants/QUAL", chunk.qual.into_pyarray(py))?;
+        }
+        let n_filters = spec.fixed.filters.len();
+        for (i, key) in spec.fixed.filters.iter().enumerate() {
+            let flags: Vec<bool> = chunk.filters.iter().skip(i).step_by(n_filters).copied().collect();
+            let field = format!("variants/FILTER_{}", String::from_utf8_lossy(key));
+            dict.set_item(field, flags.into_pyarray(py))?;
+        }
+        if let Some(g) = &spec.gt {
             let array = chunk.gt.into_pyarray(py);
             let array = if g.number == 1 {
-                array.reshape([chunk.length, self.n_samples_out])?.into_any()
+                array.reshape([n, spec.n_samples_out])?.into_any()
             } else {
-                array.reshape([chunk.length, self.n_samples_out, g.number])?.into_any()
+                array.reshape([n, spec.n_samples_out, g.number])?.into_any()
             };
             dict.set_item("calldata/GT", array)?;
         }
@@ -278,42 +556,40 @@ impl VCFChunkIterator {
     }
 }
 
-/// Parse one data line: returns POS (0 when missing or unparsable), stores the
-/// genotypes into `gt` (already filled) and the chrom, null-terminated as the
-/// Cython parser returns it, into `chrom`.
-#[allow(clippy::too_many_arguments)]
+/// Parse one data line into the next variant of `chunk`, and return its POS
+/// (0 when missing or unparsable). Every field gets a value for the variant,
+/// the fill value when the line is too short for it.
 fn parse_line<T: Allele>(
     line: &[u8],
     line_end: State,
     previous_variant: i64,
-    samples: &[String],
-    loc_samples: &[bool],
-    gt_number: Option<usize>,
-    gt: &mut [T],
-    chrom: &mut Vec<u8>,
-    warnings: &mut Vec<String>,
+    spec: &Spec,
+    chunk: &mut Chunk<T>,
+    fill: T,
 ) -> i64 {
     let mut columns = line.split(|&c| c == b'\t');
-    let has_tab = memchr(b'\t', line).is_some();
+    // CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO and FORMAT
+    let fixed: [Option<&[u8]>; 9] = std::array::from_fn(|_| columns.next());
+    // state of a warning about column `i`, which ends the line if no tab follows
+    let state = |i: usize, own: State| if fixed[i + 1].is_some() { own } else { line_end };
+    let warnings = &mut chunk.warnings;
 
     // CHROM
-    let chrom_field = columns.next().unwrap_or(b"");
+    let chrom_field = fixed[0].unwrap_or(b"");
+    let chrom = &mut chunk.chrom;
     chrom.clear();
     chrom.extend_from_slice(chrom_field);
     let mut ctx = Context { variant_index: previous_variant, chrom: b"", pos: 0 };
     if chrom_field.is_empty() {
-        let state = if has_tab { State::Chrom } else { line_end };
-        warnings.push(ctx.message("empty CHROM", state));
+        warnings.push(ctx.message("empty CHROM", state(0, State::Chrom)));
     }
     chrom.push(0);
     ctx.chrom = chrom;
 
     // POS
     let mut pos: i64 = 0;
-    if has_tab {
-        let rest = &line[chrom_field.len() + 1..];
-        let pos_field = columns.next().unwrap_or(b"");
-        let state = if memchr(b'\t', rest).is_some() { State::Pos } else { line_end };
+    if let Some(pos_field) = fixed[1] {
+        let state = state(1, State::Pos);
         if pos_field.is_empty() {
             warnings.push(ctx.message("empty POS", state));
         } else {
@@ -332,16 +608,89 @@ fn parse_line<T: Allele>(
     ctx.pos = pos;
     ctx.variant_index = previous_variant + 1;
 
-    let Some(number) = gt_number else { return pos };
+    let f = &spec.fixed;
+    if let Some(c) = &mut chunk.chrom_values {
+        c.push(chrom_field);
+    }
+    if spec.store_pos {
+        // C cast from long, as in the Cython parser
+        chunk.pos.push(pos as i32);
+    }
+    if let Some(c) = &mut chunk.id {
+        c.push(fixed[2].unwrap_or(b""));
+    }
+    if let Some(c) = &mut chunk.ref_ {
+        c.push(fixed[3].unwrap_or(b""));
+    }
 
-    // skip ID, REF, ALT, QUAL, FILTER and INFO
-    for _ in 0..6 {
-        if columns.next().is_none() {
-            return pos;
+    // ALT and the fields computed from it
+    if chunk.alt.is_some() || f.numalt || f.altlen || f.is_snp {
+        let ref_len = fixed[3].map_or(0, |r| ref_length(r, f.ref_));
+        let alt = parse_alt(fixed[4], fixed[5].is_some(), ref_len, f.alt_number);
+        if let Some(c) = &mut chunk.alt {
+            for value in &alt.values {
+                c.push(value);
+            }
+        }
+        if f.numalt {
+            chunk.numalt.push(alt.numalt);
+        }
+        if f.altlen {
+            chunk.altlen.extend_from_slice(&alt.altlen);
+        }
+        if f.is_snp {
+            chunk.is_snp.push(alt.is_snp);
         }
     }
+
+    // QUAL
+    if f.qual {
+        let mut value = f32::NAN;
+        if let Some(q) = fixed[5] {
+            let message = match strtod(q) {
+                Float::Missing => None,
+                Float::Parsed(v) => {
+                    value = v as f32;
+                    None
+                }
+                Float::Partial(v) => {
+                    value = v as f32;
+                    Some("not all characters parsed for floating point value")
+                }
+                Float::Error => Some("error parsing floating point value"),
+            };
+            if let Some(message) = message {
+                warnings.push(ctx.message(message, state(5, State::Qual)));
+            }
+        }
+        chunk.qual.push(value);
+    }
+
+    // FILTER
+    if !f.filters.is_empty() {
+        let offset = chunk.filters.len();
+        chunk.filters.resize(offset + f.filters.len(), false);
+        // a leading '.' is missing, whatever follows
+        if let Some(column) = fixed[6].filter(|c| !c.starts_with(b".")) {
+            // some of these delimiters are not strictly kosher, but are seen
+            for key in column.split(|&c| matches!(c, b',' | b':' | b';')) {
+                if let Ok(i) = f.filters.binary_search_by(|k| k.as_slice().cmp(key)) {
+                    chunk.filters[offset + i] = true;
+                }
+            }
+        }
+    }
+
+    let Some(g) = &spec.gt else { return pos };
+    let number = g.number;
+    let offset = chunk.gt.len();
+    chunk.gt.resize(offset + spec.n_samples_out * number, fill);
+    let gt = &mut chunk.gt[offset..];
+    let samples = &spec.samples;
+    let loc_samples = &spec.loc_samples;
+
     // FORMAT, only parsed when followed by call data
-    let Some(format) = columns.next() else { return pos };
+    let Some(format) = fixed[8] else { return pos };
     let mut columns = columns.peekable();
     if columns.peek().is_none() {
         return pos;
@@ -426,9 +775,50 @@ fn parse_format(format: &[u8]) -> Vec<Option<()>> {
     keys
 }
 
-#[inline]
-fn memchr(needle: u8, haystack: &[u8]) -> Option<usize> {
-    haystack.iter().position(|&c| c == needle)
+/// Length of REF, as used by `altlen` and `is_snp`: bytes but '.' when the
+/// Cython parser stores REF as bytes, otherwise characters, 0 for '.'.
+fn ref_length(value: &[u8], kind: Option<StrType>) -> usize {
+    match kind {
+        Some(StrType::Bytes(_)) => value.iter().filter(|&&c| c != b'.').count(),
+        _ if value == b"." => 0,
+        _ => std::str::from_utf8(value).map_or(value.len(), |s| s.chars().count()),
+    }
+}
+
+/// ALT values of one variant and the fields computed from them.
+struct Alt<'a> {
+    // `number` values, empty when missing
+    values: Vec<&'a [u8]>,
+    numalt: i32,
+    altlen: Vec<i32>,
+    is_snp: bool,
+}
+
+/// Parse the ALT column. `followed` tells whether another column follows: an
+/// empty ALT is missing then, but one empty allele at the end of the line, as
+/// in the Cython parser.
+fn parse_alt(column: Option<&[u8]>, followed: bool, ref_len: usize, number: usize) -> Alt<'_> {
+    let mut alt = Alt { values: vec![b"" as &[u8]; number], numalt: 0, altlen: vec![0; number], is_snp: false };
+    let Some(column) = column else { return alt };
+    if column.starts_with(b".") || (column.is_empty() && followed) {
+        // missing, whatever follows a '.'
+        return alt;
+    }
+    let mut is_snp = ref_len == 1;
+    let mut n = 0;
+    for (i, value) in column.split(|&c| c == b',').enumerate() {
+        let len = value.iter().filter(|&&c| c != b'.' && c != b'*').count();
+        is_snp = is_snp && len == 1;
+        if i < number {
+            alt.values[i] = value;
+            // C cast to int32
+            alt.altlen[i] = (len as i64 - ref_len as i64) as i32;
+        }
+        n = i + 1;
+    }
+    alt.numalt = n as i32;
+    alt.is_snp = is_snp;
+    alt
 }
 
 fn fill_value<T: Allele>(fill: Option<i128>, dtype: &str) -> PyResult<T> {
@@ -475,17 +865,60 @@ fn next_chunk_for<'py, T: Allele>(it: &mut VCFChunkIterator, py: Python<'py>, fi
 impl VCFChunkIterator {
     /// Iterate over the data lines of the VCF file at `path`, after its
     /// header. `samples` are all the samples of the header, `loc_samples`
-    /// selects those to output. `gt` is `(dtype name, ploidy, fill or None)`,
-    /// or `None` to skip genotypes.
+    /// selects those to output. `fields` are the normalised fields to store;
+    /// `string_types` maps the string fields among them to their NumPy dtype
+    /// string ('|O' or '|S<width>'). `alt_number` is the number of ALT values
+    /// per variant. `gt` is `(dtype name, ploidy, fill or None)` when
+    /// `calldata/GT` is stored.
     #[new]
-    #[pyo3(signature = (path, chunk_length, samples, loc_samples, store_pos, gt=None))]
+    #[pyo3(signature = (path, chunk_length, samples, loc_samples, fields, string_types,
+                        alt_number, gt=None))]
+    #[allow(clippy::too_many_arguments)]
     fn new(path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
-           store_pos: bool, gt: Option<(String, usize, Option<i128>)>) -> PyResult<Self> {
+           fields: Vec<String>, string_types: HashMap<String, String>, alt_number: usize,
+           gt: Option<(String, usize, Option<i128>)>) -> PyResult<Self> {
         if chunk_length == 0 {
             return Err(PyValueError::new_err("chunk_length must be positive"));
         }
         if loc_samples.len() != samples.len() {
             return Err(PyValueError::new_err("loc_samples and samples differ in length"));
+        }
+        if alt_number == 0 {
+            return Err(PyValueError::new_err("alt_number must be positive"));
+        }
+        let mut fixed = FixedSpec {
+            chrom: None, id: None, ref_: None, alt: None, alt_number,
+            numalt: false, altlen: false, is_snp: false, qual: false, filters: Vec::new(),
+        };
+        let mut store_pos = false;
+        let mut store_gt = false;
+        for field in &fields {
+            let string_type = || match string_types.get(field) {
+                Some(dtype) => StrType::parse(field, dtype).map(Some),
+                None => Err(PyValueError::new_err(format!("no dtype for field {field:?}"))),
+            };
+            match field.as_str() {
+                "variants/CHROM" => fixed.chrom = string_type()?,
+                "variants/POS" => store_pos = true,
+                "variants/ID" => fixed.id = string_type()?,
+                "variants/REF" => fixed.ref_ = string_type()?,
+                "variants/ALT" => fixed.alt = string_type()?,
+                "variants/QUAL" => fixed.qual = true,
+                "variants/numalt" => fixed.numalt = true,
+                "variants/altlen" => fixed.altlen = true,
+                "variants/is_snp" => fixed.is_snp = true,
+                "calldata/GT" => store_gt = true,
+                f => match f.strip_prefix("variants/FILTER_") {
+                    Some(key) => fixed.filters.push(key.as_bytes().to_vec()),
+                    None => return Err(PyValueError::new_err(format!(
+                        "field {f:?} is not handled by the Rust parser"))),
+                },
+            }
+        }
+        fixed.filters.sort();
+        fixed.filters.dedup();
+        if store_gt != gt.is_some() {
+            return Err(PyValueError::new_err("gt must be given if and only if calldata/GT is a field"));
         }
         let gt = gt.map(|(dtype, number, fill)| GtSpec { dtype, number, fill });
         if let Some(g) = &gt {
@@ -512,11 +945,7 @@ impl VCFChunkIterator {
         Ok(VCFChunkIterator {
             reader: Mutex::new(reader),
             chunk_length,
-            samples,
-            loc_samples,
-            n_samples_out,
-            store_pos,
-            gt,
+            spec: Spec { samples, loc_samples, n_samples_out, store_pos, fixed, gt },
             variant_index: -1,
             eof: false,
         })
@@ -530,7 +959,7 @@ impl VCFChunkIterator {
         if self.eof {
             return Ok(None);
         }
-        match self.gt.clone() {
+        match self.spec.gt.clone() {
             None => self.next_chunk::<i8>(py, -1),
             Some(g) => with_gt_dtype!(&g, next_chunk_for(self, py)),
         }
