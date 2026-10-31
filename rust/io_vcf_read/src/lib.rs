@@ -6,9 +6,10 @@
 //! field names to NumPy arrays. The Cython parser is the reference: values,
 //! dtypes, shapes and warning messages match it, quirks included.
 //!
-//! Fields handled so far: the fixed columns (CHROM, POS, ID, REF, ALT, QUAL,
-//! the FILTER flags and the INFO fields), the computed fields `numalt`,
-//! `altlen` and `is_snp`, and `calldata/GT`.
+//! Fields handled: the fixed columns (CHROM, POS, ID, REF, ALT, QUAL, the
+//! FILTER flags and the INFO fields), the computed fields `numalt`, `altlen`
+//! and `is_snp`, and the FORMAT fields, as call data. Python sends the others
+//! to the Cython parser.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -215,6 +216,8 @@ fn hex_float(s: &[u8]) -> Option<(usize, f64)> {
 trait Integer: Element + Copy + Send + Sync + TryFrom<i128> {
     fn from_long(v: i64) -> Self;
     fn default_fill() -> Self;
+    /// Add one, wrapping around as in C.
+    fn increment(self) -> Self;
 }
 
 macro_rules! impl_integer {
@@ -223,6 +226,7 @@ macro_rules! impl_integer {
             #[inline]
             fn from_long(v: i64) -> Self { v as $t }
             fn default_fill() -> Self { $fill }
+            fn increment(self) -> Self { self.wrapping_add(1) }
         }
     )*};
 }
@@ -300,13 +304,6 @@ impl State {
             State::Eof => "EOF",
         }
     }
-}
-
-#[derive(Clone)]
-struct GtSpec {
-    dtype: String,
-    number: usize,
-    fill: Option<i128>,
 }
 
 /// How a string field is stored: as Python strings in an object array, or as
@@ -396,61 +393,67 @@ fn bytes_array<'py>(py: Python<'py>, data: Vec<u8>, width: usize, shape: &[usize
         .call_method1("reshape", (PyTuple::new(py, shape)?,))
 }
 
-/// The values of an INFO field in a chunk, `number` per variant.
-trait InfoColumn: Send + Sync {
+/// The values of an INFO or FORMAT field in a chunk: `number` per variant,
+/// and per sample for FORMAT fields.
+trait Column: Send + Sync {
     /// A column of the same type with no values, for a new chunk.
-    fn empty(&self) -> Box<dyn InfoColumn>;
-    /// Append the fill values of a new variant.
-    fn push_fill(&mut self, number: usize);
-    /// Parse `value` into the values of the last variant, as the Cython
+    fn empty(&self) -> Box<dyn Column>;
+    /// Append `n` fill values.
+    fn push_fill(&mut self, n: usize);
+    /// Parse `value` into the `number` values from index `at`, as the Cython
     /// parser does: values beyond `number` are ignored, and a repeated key
     /// overwrites what its values give.
-    fn store(&mut self, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str));
+    fn store(&mut self, at: usize, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str));
     fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>>;
 }
 
-fn info_values(value: &[u8], number: usize) -> impl Iterator<Item = &[u8]> {
-    value.split(|&c| c == b',').take(number)
+fn is_comma(c: &u8) -> bool {
+    *c == b','
+}
+
+fn is_allele_separator(c: &u8) -> bool {
+    matches!(c, b'/' | b'|')
 }
 
 #[derive(Default)]
 struct FlagColumn(Vec<bool>);
 
-impl InfoColumn for FlagColumn {
-    fn empty(&self) -> Box<dyn InfoColumn> {
+impl Column for FlagColumn {
+    fn empty(&self) -> Box<dyn Column> {
         Box::new(FlagColumn::default())
     }
-    fn push_fill(&mut self, _number: usize) {
-        self.0.push(false);
+    fn push_fill(&mut self, n: usize) {
+        self.0.resize(self.0.len() + n, false);
     }
-    fn store(&mut self, _value: &[u8], _number: usize, _warn: &mut dyn FnMut(&'static str)) {
-        if let Some(flag) = self.0.last_mut() {
-            *flag = true;
-        }
+    fn store(&mut self, at: usize, _value: &[u8], _number: usize, _warn: &mut dyn FnMut(&'static str)) {
+        self.0[at] = true;
     }
-    fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, _shape: &[usize])
+    fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
                        -> PyResult<Bound<'py, PyAny>> {
-        Ok(self.0.into_pyarray(py).into_any())
+        self.0.into_pyarray(py).reshape(shape).map(|a| a.into_any())
     }
 }
 
+/// Integers or floating point values, split on commas, or on '/' and '|'
+/// for genotypes.
 struct NumberColumn<T> {
     data: Vec<T>,
     fill: T,
     parse: fn(&[u8], &mut T) -> Option<&'static str>,
+    separator: fn(&u8) -> bool,
 }
 
-impl<T: Element + Copy + Send + Sync + 'static> InfoColumn for NumberColumn<T> {
-    fn empty(&self) -> Box<dyn InfoColumn> {
-        Box::new(NumberColumn { data: Vec::new(), fill: self.fill, parse: self.parse })
+impl<T: Element + Copy + Send + Sync + 'static> Column for NumberColumn<T> {
+    fn empty(&self) -> Box<dyn Column> {
+        Box::new(NumberColumn { data: Vec::new(), ..*self })
     }
-    fn push_fill(&mut self, number: usize) {
-        self.data.resize(self.data.len() + number, self.fill);
+    fn push_fill(&mut self, n: usize) {
+        self.data.resize(self.data.len() + n, self.fill);
     }
-    fn store(&mut self, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str)) {
-        let offset = self.data.len() - number;
-        for (slot, value) in self.data[offset..].iter_mut().zip(info_values(value, number)) {
+    fn store(&mut self, at: usize, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str)) {
+        let values = value.split(self.separator).take(number);
+        for (slot, value) in self.data[at..at + number].iter_mut().zip(values) {
             if let Some(message) = (self.parse)(value, slot) {
                 warn(message);
             }
@@ -462,22 +465,62 @@ impl<T: Element + Copy + Send + Sync + 'static> InfoColumn for NumberColumn<T> {
     }
 }
 
+/// Allele counts of genotypes, `genotype_ac/<dtype>`: one count per allele
+/// below `number`, whatever the ploidy.
+struct AlleleCountColumn<T>(Vec<T>);
+
+impl<T: Integer + 'static> Column for AlleleCountColumn<T> {
+    fn empty(&self) -> Box<dyn Column> {
+        Box::new(AlleleCountColumn::<T>(Vec::new()))
+    }
+    fn push_fill(&mut self, n: usize) {
+        self.0.resize(self.0.len() + n, T::from_long(0));
+    }
+    fn store(&mut self, at: usize, value: &[u8], number: usize, warn: &mut dyn FnMut(&'static str)) {
+        for allele in value.split(is_allele_separator) {
+            let (allele, message) = match strtol(allele) {
+                Int::Missing => continue,
+                Int::Parsed(v) => (v, None),
+                Int::Partial(v) => (v, Some("not all characters parsed for integer value")),
+                Int::Error => {
+                    warn("error parsing integer value");
+                    continue;
+                }
+            };
+            if let Some(message) = message {
+                warn(message);
+            }
+            if allele < number as i64 {
+                // the Cython parser does not check for negative alleles,
+                // which count for the values before; none out of the chunk
+                if let Some(count) = usize::try_from(at as i64 + allele).ok().and_then(|i| self.0.get_mut(i)) {
+                    *count = count.increment();
+                }
+            }
+        }
+    }
+    fn into_numpy<'py>(self: Box<Self>, py: Python<'py>, shape: &[usize])
+                       -> PyResult<Bound<'py, PyAny>> {
+        self.0.into_pyarray(py).reshape(shape).map(|a| a.into_any())
+    }
+}
+
 struct BytesColumn {
     width: usize,
     data: Vec<u8>,
 }
 
-impl InfoColumn for BytesColumn {
-    fn empty(&self) -> Box<dyn InfoColumn> {
+impl Column for BytesColumn {
+    fn empty(&self) -> Box<dyn Column> {
         Box::new(BytesColumn { width: self.width, data: Vec::new() })
     }
-    fn push_fill(&mut self, number: usize) {
-        self.data.resize(self.data.len() + number * self.width, 0);
+    fn push_fill(&mut self, n: usize) {
+        self.data.resize(self.data.len() + n * self.width, 0);
     }
-    fn store(&mut self, value: &[u8], number: usize, _warn: &mut dyn FnMut(&'static str)) {
+    fn store(&mut self, at: usize, value: &[u8], number: usize, _warn: &mut dyn FnMut(&'static str)) {
         let width = self.width;
-        let offset = self.data.len() - number * width;
-        for (slot, value) in self.data[offset..].chunks_mut(width).zip(info_values(value, number)) {
+        let slots = self.data[at * width..(at + number) * width].chunks_mut(width);
+        for (slot, value) in slots.zip(value.split(is_comma).take(number)) {
             // overwrites the first bytes only, as the Cython parser does
             let n = value.len().min(width);
             slot[..n].copy_from_slice(&value[..n]);
@@ -496,16 +539,16 @@ struct ObjectColumn {
     values: Vec<Option<(usize, usize)>>,
 }
 
-impl InfoColumn for ObjectColumn {
-    fn empty(&self) -> Box<dyn InfoColumn> {
+impl Column for ObjectColumn {
+    fn empty(&self) -> Box<dyn Column> {
         Box::new(ObjectColumn::default())
     }
-    fn push_fill(&mut self, number: usize) {
-        self.values.resize(self.values.len() + number, None);
+    fn push_fill(&mut self, n: usize) {
+        self.values.resize(self.values.len() + n, None);
     }
-    fn store(&mut self, value: &[u8], number: usize, _warn: &mut dyn FnMut(&'static str)) {
-        let offset = self.values.len() - number;
-        for (slot, value) in self.values[offset..].iter_mut().zip(info_values(value, number)) {
+    fn store(&mut self, at: usize, value: &[u8], number: usize, _warn: &mut dyn FnMut(&'static str)) {
+        let slots = self.values[at..at + number].iter_mut();
+        for (slot, value) in slots.zip(value.split(is_comma).take(number)) {
             // an empty value leaves the slot unchanged
             if !value.is_empty() {
                 let start = self.data.len();
@@ -521,45 +564,94 @@ impl InfoColumn for ObjectColumn {
     }
 }
 
-fn integer_column<T: Integer + 'static>(fill: Option<i128>, dtype: &str) -> PyResult<Box<dyn InfoColumn>> {
-    let fill = fill_value::<T>(fill, dtype)?;
-    Ok(Box::new(NumberColumn { data: Vec::new(), fill, parse: parse_integer::<T> }))
+/// How the values of an integer column are read.
+#[derive(Clone, Copy)]
+enum IntegerKind {
+    Values,
+    Genotype,
+    AlleleCount,
 }
 
-fn floating_column<T: Floating + 'static>(fill: T) -> Box<dyn InfoColumn> {
-    Box::new(NumberColumn { data: Vec::new(), fill, parse: parse_floating::<T> })
+fn integer_column<T: Integer + 'static>(kind: IntegerKind, fill: Option<i128>, dtype: &str)
+                                        -> PyResult<Box<dyn Column>> {
+    Ok(match kind {
+        IntegerKind::AlleleCount => Box::new(AlleleCountColumn::<T>(Vec::new())),
+        IntegerKind::Values | IntegerKind::Genotype => Box::new(NumberColumn {
+            data: Vec::new(),
+            fill: fill_value::<T>(fill, dtype)?,
+            parse: parse_integer::<T>,
+            separator: if matches!(kind, IntegerKind::Genotype) { is_allele_separator } else { is_comma },
+        }),
+    })
 }
 
-/// A column for an INFO field of dtype code `dtype`: 'b1' for flags, 'i1' to
-/// 'u8', 'f4', 'f8', 'S<width>' or 'O'.
-fn info_column(name: &str, dtype: &str, fill: Option<&Bound<'_, PyAny>>) -> PyResult<Box<dyn InfoColumn>> {
+fn floating_column<T: Floating + 'static>(fill: T) -> Box<dyn Column> {
+    Box::new(NumberColumn { data: Vec::new(), fill, parse: parse_floating::<T>, separator: is_comma })
+}
+
+/// A column for a field of dtype code `code`: 'b1' for flags, 'i1' to 'u8',
+/// 'f4', 'f8', 'S<width>' or 'O'; for FORMAT fields, 'gt:' or 'ac:' before an
+/// integer code for genotypes or their allele counts.
+fn column(name: &str, code: &str, fill: Option<&Bound<'_, PyAny>>) -> PyResult<Box<dyn Column>> {
+    let (kind, dtype) = match code.split_once(':') {
+        Some(("gt", dtype)) => (IntegerKind::Genotype, dtype),
+        Some(("ac", dtype)) => (IntegerKind::AlleleCount, dtype),
+        _ => (IntegerKind::Values, code),
+    };
     let integer_fill = || fill.map(|f| f.extract::<i128>()).transpose();
     let floating_fill = || fill.map_or(Ok(f64::NAN), |f| f.extract::<f64>());
-    Ok(match dtype {
+    let column: Box<dyn Column> = match dtype {
+        "i1" => integer_column::<i8>(kind, integer_fill()?, "int8")?,
+        "i2" => integer_column::<i16>(kind, integer_fill()?, "int16")?,
+        "i4" => integer_column::<i32>(kind, integer_fill()?, "int32")?,
+        "i8" => integer_column::<i64>(kind, integer_fill()?, "int64")?,
+        "u1" => integer_column::<u8>(kind, integer_fill()?, "uint8")?,
+        "u2" => integer_column::<u16>(kind, integer_fill()?, "uint16")?,
+        "u4" => integer_column::<u32>(kind, integer_fill()?, "uint32")?,
+        "u8" => integer_column::<u64>(kind, integer_fill()?, "uint64")?,
+        _ if !matches!(kind, IntegerKind::Values) => {
+            return Err(PyValueError::new_err(format!("unsupported dtype {code:?} for field {name:?}")));
+        }
         "b1" => Box::new(FlagColumn::default()),
-        "i1" => integer_column::<i8>(integer_fill()?, "int8")?,
-        "i2" => integer_column::<i16>(integer_fill()?, "int16")?,
-        "i4" => integer_column::<i32>(integer_fill()?, "int32")?,
-        "i8" => integer_column::<i64>(integer_fill()?, "int64")?,
-        "u1" => integer_column::<u8>(integer_fill()?, "uint8")?,
-        "u2" => integer_column::<u16>(integer_fill()?, "uint16")?,
-        "u4" => integer_column::<u32>(integer_fill()?, "uint32")?,
-        "u8" => integer_column::<u64>(integer_fill()?, "uint64")?,
         "f4" => floating_column(floating_fill()? as f32),
         "f8" => floating_column(floating_fill()?),
         _ => match StrType::parse(name, dtype)? {
             StrType::Object => Box::new(ObjectColumn::default()),
             StrType::Bytes(width) => Box::new(BytesColumn { width, data: Vec::new() }),
         },
-    })
+    };
+    Ok(column)
 }
 
-/// An INFO field to store.
-struct InfoSpec {
-    key: Vec<u8>,
+/// An INFO or FORMAT field to store.
+struct FieldSpec {
+    name: String,
     number: usize,
     // with no values, the prototype of each chunk's column
-    column: Box<dyn InfoColumn>,
+    column: Box<dyn Column>,
+}
+
+impl FieldSpec {
+    /// From `(name, dtype code, number, fill or None)`, see `column`.
+    fn new((name, code, number, fill): &(String, String, usize, Option<Bound<'_, PyAny>>))
+           -> PyResult<Self> {
+        let flag = code == "b1";
+        Ok(FieldSpec {
+            name: name.clone(),
+            // flags are one value per variant, whatever their number
+            number: if flag { 1 } else { *number },
+            column: column(name, code, fill.as_ref())?,
+        })
+    }
+
+    fn key(&self) -> &[u8] {
+        self.name.as_bytes()
+    }
+}
+
+/// The index of the field of key `key` in `fields`, sorted by key.
+fn find(fields: &[FieldSpec], key: &[u8]) -> Option<usize> {
+    fields.binary_search_by(|f| f.key().cmp(key)).ok()
 }
 
 /// The variants fields to store: fixed columns, computed fields and INFO.
@@ -577,7 +669,7 @@ struct VariantSpec {
     // sorted, as the Cython parser outputs them
     filters: Vec<Vec<u8>>,
     // sorted by key, for searching
-    infos: Vec<InfoSpec>,
+    infos: Vec<FieldSpec>,
 }
 
 /// What to parse, fixed for the whole file.
@@ -587,11 +679,12 @@ struct Spec {
     n_samples_out: usize,
     store_pos: bool,
     fixed: VariantSpec,
-    gt: Option<GtSpec>,
+    // FORMAT fields, sorted by key
+    formats: Vec<FieldSpec>,
 }
 
 /// One chunk of parsed data, before conversion to NumPy arrays.
-struct Chunk<T> {
+struct Chunk {
     length: usize,
     chrom_values: Option<StrColumn>,
     pos: Vec<i32>,
@@ -605,16 +698,18 @@ struct Chunk<T> {
     // one flag per filter, variant after variant
     filters: Vec<bool>,
     // in the order of `VariantSpec::infos`
-    infos: Vec<Box<dyn InfoColumn>>,
-    gt: Vec<T>,
+    infos: Vec<Box<dyn Column>>,
+    // in the order of `Spec::formats`
+    calldata: Vec<Box<dyn Column>>,
     // CHROM of the last variant, null-terminated
     chrom: Vec<u8>,
     last_pos: i64,
     warnings: Vec<String>,
 }
 
-impl<T> Chunk<T> {
-    fn new(fixed: &VariantSpec) -> Self {
+impl Chunk {
+    fn new(spec: &Spec) -> Self {
+        let fixed = &spec.fixed;
         Chunk {
             length: 0,
             chrom_values: fixed.chrom.map(StrColumn::new),
@@ -628,7 +723,7 @@ impl<T> Chunk<T> {
             qual: Vec::new(),
             filters: Vec::new(),
             infos: fixed.infos.iter().map(|i| i.column.empty()).collect(),
-            gt: Vec::new(),
+            calldata: spec.formats.iter().map(|f| f.column.empty()).collect(),
             chrom: Vec::new(),
             last_pos: 0,
             warnings: Vec::new(),
@@ -710,8 +805,8 @@ impl Context<'_> {
 
 impl VCFChunkIterator {
     /// Parse up to `chunk_length` lines. Runs without the GIL.
-    fn parse_chunk<T: Integer>(&mut self, fill: T) -> std::io::Result<Chunk<T>> {
-        let mut chunk = Chunk::new(&self.spec.fixed);
+    fn parse_chunk(&mut self) -> std::io::Result<Chunk> {
+        let mut chunk = Chunk::new(&self.spec);
         let reader = self.reader.get_mut().unwrap_or_else(|e| e.into_inner());
         let mut line = Vec::new();
         while chunk.length < self.chunk_length {
@@ -726,7 +821,7 @@ impl VCFChunkIterator {
                 Some(t) => t,
             };
             let line_end = if terminated { State::Eol } else { State::Eof };
-            let pos = parse_line(&line, line_end, self.variant_index, &self.spec, &mut chunk, fill);
+            let pos = parse_line(&line, line_end, self.variant_index, &self.spec, &mut chunk);
             self.variant_index += 1;
             chunk.length += 1;
             chunk.last_pos = pos;
@@ -738,10 +833,9 @@ impl VCFChunkIterator {
         Ok(chunk)
     }
 
-    fn next_chunk<'py, T: Integer>(&mut self, py: Python<'py>, fill: T)
-                                  -> PyResult<Option<Bound<'py, PyAny>>> {
+    fn next_chunk<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         let chunk = py
-            .detach(|| self.parse_chunk(fill))
+            .detach(|| self.parse_chunk())
             .map_err(|e| PyOSError::new_err(e.to_string()))?;
         if !chunk.warnings.is_empty() {
             // through Python, as messages may contain null bytes (see Context)
@@ -794,17 +888,12 @@ impl VCFChunkIterator {
         }
         for (info, column) in spec.fixed.infos.iter().zip(chunk.infos) {
             let shape: &[usize] = if info.number == 1 { &[n] } else { &[n, info.number] };
-            let field = format!("variants/{}", String::from_utf8_lossy(&info.key));
-            dict.set_item(field, column.into_numpy(py, shape)?)?;
+            dict.set_item(format!("variants/{}", info.name), column.into_numpy(py, shape)?)?;
         }
-        if let Some(g) = &spec.gt {
-            let array = chunk.gt.into_pyarray(py);
-            let array = if g.number == 1 {
-                array.reshape([n, spec.n_samples_out])?.into_any()
-            } else {
-                array.reshape([n, spec.n_samples_out, g.number])?.into_any()
-            };
-            dict.set_item("calldata/GT", array)?;
+        let n_out = spec.n_samples_out;
+        for (format, column) in spec.formats.iter().zip(chunk.calldata) {
+            let shape: &[usize] = if format.number == 1 { &[n, n_out] } else { &[n, n_out, format.number] };
+            dict.set_item(format!("calldata/{}", format.name), column.into_numpy(py, shape)?)?;
         }
         let tuple = (dict, chunk.length, PyBytes::new(py, &chunk.chrom), chunk.last_pos);
         Ok(Some(tuple.into_pyobject(py)?.into_any()))
@@ -814,20 +903,16 @@ impl VCFChunkIterator {
 /// Parse one data line into the next variant of `chunk`, and return its POS
 /// (0 when missing or unparsable). Every field gets a value for the variant,
 /// the fill value when the line is too short for it.
-fn parse_line<T: Integer>(
-    line: &[u8],
-    line_end: State,
-    previous_variant: i64,
-    spec: &Spec,
-    chunk: &mut Chunk<T>,
-    fill: T,
-) -> i64 {
+fn parse_line(line: &[u8], line_end: State, previous_variant: i64, spec: &Spec,
+              chunk: &mut Chunk) -> i64 {
     let mut columns = line.split(|&c| c == b'\t');
     // CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO and FORMAT
     let fixed: [Option<&[u8]>; 9] = std::array::from_fn(|_| columns.next());
     // state of a warning about column `i`, which ends the line if no tab follows
     let state = |i: usize, own: State| if fixed[i + 1].is_some() { own } else { line_end };
     let warnings = &mut chunk.warnings;
+    // index of the variant in the chunk
+    let row = chunk.length;
 
     // CHROM
     let chrom_field = fixed[0].unwrap_or(b"");
@@ -944,35 +1029,38 @@ fn parse_line<T: Integer>(
                     }
                     continue;
                 }
-                if let Ok(i) = f.infos.binary_search_by(|info| info.key.as_slice().cmp(key)) {
-                    chunk.infos[i].store(value, f.infos[i].number, &mut warn);
+                if let Some(i) = find(&f.infos, key) {
+                    let number = f.infos[i].number;
+                    chunk.infos[i].store(row * number, value, number, &mut warn);
                 }
             }
         }
     }
 
-    let Some(g) = &spec.gt else { return pos };
-    let number = g.number;
-    let offset = chunk.gt.len();
-    chunk.gt.resize(offset + spec.n_samples_out * number, fill);
-    let gt = &mut chunk.gt[offset..];
-    let samples = &spec.samples;
-    let loc_samples = &spec.loc_samples;
-
+    // FORMAT and call data
+    let formats = &spec.formats;
+    if formats.is_empty() {
+        return pos;
+    }
+    let n_out = spec.n_samples_out;
+    for (format, column) in formats.iter().zip(chunk.calldata.iter_mut()) {
+        column.push_fill(n_out * format.number);
+    }
     // FORMAT, only parsed when followed by call data
     let Some(format) = fixed[8] else { return pos };
     let mut columns = columns.peekable();
     if columns.peek().is_none() {
         return pos;
     }
-    let formats = parse_format(format);
-
-    let n_samples = samples.len();
-    let mut sample_output_index: usize = 0;
+    let keys = parse_format(format, formats);
+    let samples = &spec.samples;
+    let mut sample_output_index = 0;
     for (sample_index, column) in columns.enumerate() {
-        if sample_index >= n_samples {
-            let fmt = match formats.first() {
-                Some(Some(_)) => "GT",
+        if sample_index >= samples.len() {
+            // the Cython parser names the format at random, or crashes, when
+            // the first key is not stored
+            let fmt = match keys.first() {
+                Some(Some(i)) => formats[*i].name.as_str(),
                 _ => "unknown",
             };
             warnings.push(format!(
@@ -981,45 +1069,38 @@ fn parse_line<T: Integer>(
             ));
             break;
         }
-        if !loc_samples[sample_index] {
+        if !spec.loc_samples[sample_index] {
             continue;
         }
-        let out = &mut gt[sample_output_index * number..(sample_output_index + 1) * number];
-        sample_output_index += 1;
         for (field_index, value) in column.split(|&c| c == b':').enumerate() {
-            if field_index >= formats.len() || formats[field_index].is_none() {
-                continue;
-            }
-            for (value_index, allele) in value.split(|&c| c == b'/' || c == b'|').enumerate() {
-                if value_index >= number {
-                    // more alleles than room for, ignored
-                    break;
-                }
-                if let Some(message) = parse_integer(allele, &mut out[value_index]) {
-                    warnings.push(format!(
-                        "{}; sample: {sample_index}:{field_index} ({}:GT)",
-                        ctx.message(message, State::Calldata),
-                        samples[sample_index]
-                    ));
-                }
-            }
+            // keys beyond FORMAT, or not stored, are skipped
+            let Some(&Some(i)) = keys.get(field_index) else { continue };
+            let number = formats[i].number;
+            let at = (row * n_out + sample_output_index) * number;
+            let mut warn = |message: &str| warnings.push(format!(
+                "{}; sample: {sample_index}:{field_index} ({}:{})",
+                ctx.message(message, State::Calldata), samples[sample_index], formats[i].name
+            ));
+            chunk.calldata[i].store(at, value, number, &mut warn);
         }
+        sample_output_index += 1;
     }
     pos
 }
 
-/// Keys of the FORMAT column: `Some(())` for GT, `None` for any other key.
+/// For each key of the FORMAT column, the index of its field in `formats`,
+/// `None` if not stored.
 ///
 /// Like the Cython parser, empty keys are dropped, and a '.' key is dropped
 /// but stays in the buffer, so that it prefixes the next key.
-fn parse_format(format: &[u8]) -> Vec<Option<()>> {
+fn parse_format(format: &[u8], formats: &[FieldSpec]) -> Vec<Option<usize>> {
     let mut keys = Vec::new();
     let mut temp: Vec<u8> = Vec::new();
     let mut store = |temp: &mut Vec<u8>| {
         if temp.is_empty() || temp.as_slice() == b"." {
             return;
         }
-        keys.push(if temp.as_slice() == b"GT" { Some(()) } else { None });
+        keys.push(find(formats, temp));
         temp.clear();
     };
     for &c in format {
@@ -1088,58 +1169,24 @@ fn fill_value<T: Integer>(fill: Option<i128>, dtype: &str) -> PyResult<T> {
     }
 }
 
-/// Call `$f::<T>($args.., fill)` with `T` the genotype dtype of `$gt`.
-macro_rules! with_gt_dtype {
-    ($gt:expr, $f:ident($($arg:expr),*)) => {{
-        let g: &GtSpec = $gt;
-        match g.dtype.as_str() {
-            "int8" => $f::<i8>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "int16" => $f::<i16>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "int32" => $f::<i32>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "int64" => $f::<i64>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "uint8" => $f::<u8>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "uint16" => $f::<u16>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "uint32" => $f::<u32>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            "uint64" => $f::<u64>($($arg,)* fill_value(g.fill, &g.dtype)?),
-            other => Err(PyValueError::new_err(format!("unsupported genotype dtype: {other}"))),
-        }
-    }};
-}
-
-fn accept_fill<T: Integer>(_fill: T) -> PyResult<()> {
-    Ok(())
-}
-
-fn check_gt(g: &GtSpec) -> PyResult<()> {
-    with_gt_dtype!(g, accept_fill())
-}
-
-fn next_chunk_for<'py, T: Integer>(it: &mut VCFChunkIterator, py: Python<'py>, fill: T)
-                                  -> PyResult<Option<Bound<'py, PyAny>>> {
-    it.next_chunk(py, fill)
-}
-
 #[pymethods]
 impl VCFChunkIterator {
     /// Iterate over the data lines of the VCF file at `path`, after its
     /// header. `samples` are all the samples of the header, `loc_samples`
     /// selects those to output. `fields` are the normalised fields to store;
-    /// `string_types` maps the string fields among them to their NumPy dtype
-    /// string ('|O' or '|S<width>'). `alt_number` is the number of ALT values
-    /// per variant. `gt` is `(dtype name, ploidy, fill or None)` when
-    /// `calldata/GT` is stored.
+    /// `string_types` maps the fixed string fields among them to their dtype
+    /// code ('O' or 'S<width>'). `alt_number` is the number of ALT values per
+    /// variant. `infos` and `formats` are the INFO and FORMAT fields among
+    /// `fields`, as `(name, dtype code, number, fill or None)`; see `column`
+    /// for the dtype codes.
     #[new]
-    ///
-    /// `infos` are the INFO fields among `fields`, as `(name, dtype code,
-    /// number, fill or None)`, the dtype code being 'b1' for flags, 'i1' to
-    /// 'u8', 'f4', 'f8', 'S<width>' or 'O'.
     #[pyo3(signature = (path, chunk_length, samples, loc_samples, fields, string_types,
-                        alt_number, infos=Vec::new(), gt=None))]
+                        alt_number, infos=Vec::new(), formats=Vec::new()))]
     #[allow(clippy::too_many_arguments)]
     fn new(path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
            fields: Vec<String>, string_types: HashMap<String, String>, alt_number: usize,
            infos: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>,
-           gt: Option<(String, usize, Option<i128>)>) -> PyResult<Self> {
+           formats: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>) -> PyResult<Self> {
         if chunk_length == 0 {
             return Err(PyValueError::new_err("chunk_length must be positive"));
         }
@@ -1154,23 +1201,11 @@ impl VCFChunkIterator {
             numalt: false, altlen: false, is_snp: false, qual: false, filters: Vec::new(),
             infos: Vec::new(),
         };
-        let mut info_fields = Vec::new();
-        for (name, dtype, number, fill) in &infos {
-            let flag = dtype == "b1";
-            if *number == 0 && !flag {
-                return Err(PyValueError::new_err(format!("INFO field {name:?} of number 0 must be a flag")));
-            }
-            fixed.infos.push(InfoSpec {
-                key: name.as_bytes().to_vec(),
-                // flags are one value per variant, whatever their number
-                number: if flag { 1 } else { *number },
-                column: info_column(name, dtype, fill.as_ref())?,
-            });
-            info_fields.push(format!("variants/{name}"));
-        }
-        fixed.infos.sort_by(|a, b| a.key.cmp(&b.key));
+        fixed.infos = infos.iter().map(FieldSpec::new).collect::<PyResult<_>>()?;
+        fixed.infos.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut formats = formats.iter().map(FieldSpec::new).collect::<PyResult<Vec<_>>>()?;
+        formats.sort_by(|a, b| a.name.cmp(&b.name));
         let mut store_pos = false;
-        let mut store_gt = false;
         for field in &fields {
             let string_type = || match string_types.get(field) {
                 Some(dtype) => StrType::parse(field, dtype).map(Some),
@@ -1186,8 +1221,8 @@ impl VCFChunkIterator {
                 "variants/numalt" => fixed.numalt = true,
                 "variants/altlen" => fixed.altlen = true,
                 "variants/is_snp" => fixed.is_snp = true,
-                "calldata/GT" => store_gt = true,
-                f if info_fields.iter().any(|i| i == f) => {}
+                f if f.strip_prefix("variants/").is_some_and(|n| fixed.infos.iter().any(|i| i.name == n)) => {}
+                f if f.strip_prefix("calldata/").is_some_and(|n| formats.iter().any(|i| i.name == n)) => {}
                 f => match f.strip_prefix("variants/FILTER_") {
                     Some(key) => fixed.filters.push(key.as_bytes().to_vec()),
                     None => return Err(PyValueError::new_err(format!(
@@ -1197,17 +1232,6 @@ impl VCFChunkIterator {
         }
         fixed.filters.sort();
         fixed.filters.dedup();
-        if store_gt != gt.is_some() {
-            return Err(PyValueError::new_err("gt must be given if and only if calldata/GT is a field"));
-        }
-        let gt = gt.map(|(dtype, number, fill)| GtSpec { dtype, number, fill });
-        if let Some(g) = &gt {
-            // fail early on an unsupported dtype or a fill out of range
-            check_gt(g)?;
-            if g.number == 0 {
-                return Err(PyValueError::new_err("genotype number must be positive"));
-            }
-        }
 
         // skip the header, already read by Python
         let mut reader = open(path)?;
@@ -1225,7 +1249,7 @@ impl VCFChunkIterator {
         Ok(VCFChunkIterator {
             reader: Mutex::new(reader),
             chunk_length,
-            spec: Spec { samples, loc_samples, n_samples_out, store_pos, fixed, gt },
+            spec: Spec { samples, loc_samples, n_samples_out, store_pos, fixed, formats },
             variant_index: -1,
             eof: false,
         })
@@ -1239,10 +1263,7 @@ impl VCFChunkIterator {
         if self.eof {
             return Ok(None);
         }
-        match self.spec.gt.clone() {
-            None => self.next_chunk::<i8>(py, -1),
-            Some(g) => with_gt_dtype!(&g, next_chunk_for(self, py)),
-        }
+        self.next_chunk(py)
     }
 }
 
