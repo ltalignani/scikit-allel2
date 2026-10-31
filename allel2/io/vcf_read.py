@@ -56,8 +56,6 @@ logger = logging.getLogger(__name__)
 BACKEND_VARIABLE = 'ALLEL2_BACKEND'
 BACKENDS = ('rust', 'cython')
 
-# genotype dtypes handled by the Rust parser
-
 
 def _prep_fields_param(fields):
     """Prepare the `fields` parameter, and determine whether or not to store samples."""
@@ -1916,6 +1914,7 @@ def _rust_fill(code, fills, f):
     dtype = code[len('gt:'):] if code.startswith('gt:') else code
     if f not in fills or dtype[0] not in 'iuf':
         # the Cython parser ignores fills of flags, strings and allele counts
+        # ('ac:' codes, whose dtype starts with 'a')
         return None
     fill = fills[f]
     if isinstance(fill, Integral):

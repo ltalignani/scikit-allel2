@@ -277,9 +277,10 @@ def test_fixed_options_computed_only(options, monkeypatch, caplog):
 @pytest.mark.parametrize('chunk_length', [1, 3, 2**16])
 @pytest.mark.parametrize('samples', [None, []])
 def test_all_fields(fn, chunk_length, samples, monkeypatch, caplog):
-    # without samples, '*' is every variants field
+    # without samples, '*' is every variants field; none falls back
     assert_rust_matches_cython(os.path.join(DATA, fn), monkeypatch, caplog,
                                fields='*', samples=samples, chunk_length=chunk_length)
+    assert FALLBACK not in caplog.text
 
 
 FORMAT_INTEGERS = ['GQ', 'DP', 'HQ', 'AD', 'PL', 'MQ0']
@@ -614,16 +615,16 @@ def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
 
 
 @pytest.mark.parametrize('field, kwargs', [
-    ('DP', {'types': {'DP': 'f2'}}),
-    ('DP', {'types': {'DP': 'U3'}}),
-    ('AA', {'types': {'AA': 'S'}}),
-    ('DP', {'types': {'DP': 'c8'}}),
-    ('DP', {'types': {'DP': '>i4'}}),
-    ('AF', {'types': {'AF': '>f8'}}),
-    ('DP', {'fills': {'DP': 1.5}}),
-    ('AF', {'fills': {'AF': 'x'}}),
-    ('DP', {'fills': {'DP': None}}),
-    ('DP', {'numbers': {'DP': -1}}),
+    ('variants/DP', {'types': {'DP': 'f2'}}),
+    ('variants/DP', {'types': {'DP': 'U3'}}),
+    ('variants/AA', {'types': {'AA': 'S'}}),
+    ('variants/DP', {'types': {'DP': 'c8'}}),
+    ('variants/DP', {'types': {'DP': '>i4'}}),
+    ('variants/AF', {'types': {'AF': '>f8'}}),
+    ('variants/DP', {'fills': {'DP': 1.5}}),
+    ('variants/AF', {'fills': {'AF': 'x'}}),
+    ('variants/DP', {'fills': {'DP': None}}),
+    ('variants/DP', {'numbers': {'DP': -1}}),
     ('calldata/GQ', {'types': {'calldata/GQ': 'f2'}}),
     ('calldata/GQ', {'types': {'calldata/GQ': bool}}),
     ('calldata/GQ', {'types': {'calldata/GQ': '>u2'}}),
@@ -652,7 +653,7 @@ def test_fallback_uncovered_type(field, kwargs, monkeypatch, caplog):
         else:
             with pytest.raises(expected):
                 _read(path, monkeypatch, caplog, fields=fields, **kwargs)
-    assert ('variants/' + field if '/' not in field else field) in _reason(caplog)
+    assert field in _reason(caplog)
 
 
 def test_flag_type_warning(monkeypatch, caplog):

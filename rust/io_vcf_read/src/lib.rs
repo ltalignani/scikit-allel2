@@ -491,8 +491,10 @@ impl<T: Integer + 'static> Column for AlleleCountColumn<T> {
                 warn(message);
             }
             if allele < number as i64 {
-                // the Cython parser does not check for negative alleles,
-                // which count for the values before; none out of the chunk
+                // the Cython parser does not check for negative alleles: they
+                // count for the values before, of earlier samples or variants
+                // of the chunk; those before the chunk, which the Cython parser
+                // writes out of its array, are dropped
                 if let Some(count) = usize::try_from(at as i64 + allele).ok().and_then(|i| self.0.get_mut(i)) {
                     *count = count.increment();
                 }
@@ -1221,8 +1223,8 @@ impl VCFChunkIterator {
                 "variants/numalt" => fixed.numalt = true,
                 "variants/altlen" => fixed.altlen = true,
                 "variants/is_snp" => fixed.is_snp = true,
-                f if f.strip_prefix("variants/").is_some_and(|n| fixed.infos.iter().any(|i| i.name == n)) => {}
-                f if f.strip_prefix("calldata/").is_some_and(|n| formats.iter().any(|i| i.name == n)) => {}
+                f if f.strip_prefix("variants/").is_some_and(|n| find(&fixed.infos, n.as_bytes()).is_some()) => {}
+                f if f.strip_prefix("calldata/").is_some_and(|n| find(&formats, n.as_bytes()).is_some()) => {}
                 f => match f.strip_prefix("variants/FILTER_") {
                     Some(key) => fixed.filters.push(key.as_bytes().to_vec()),
                     None => return Err(PyValueError::new_err(format!(
