@@ -1129,8 +1129,13 @@ class _TabixStream:
         # a file rather than a pipe, so that tabix never blocks on its stderr
         self._err = tempfile.TemporaryFile()
         self._relayed = 0
-        self._process = subprocess.Popen([tabix, '-h', input, region],
-                                         stdout=subprocess.PIPE, stderr=self._err)
+        try:
+            self._process = subprocess.Popen([tabix, '-h', input, region],
+                                             stdout=subprocess.PIPE, stderr=self._err)
+        except BaseException:
+            # e.g. no tabix: close the file before the caller scans instead
+            self._err.close()
+            raise
         # wait for the first output, or for tabix to exit without output
         if not self._process.stdout.peek(1) and self._process.wait() != 0:
             message = self._read_messages()
