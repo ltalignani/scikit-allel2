@@ -14,10 +14,16 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::num::NonZero;
+use std::path::Path;
 use std::sync::{mpsc, Mutex};
 
 use flate2::read::MultiGzDecoder;
+use noodles_bgzf as bgzf;
+use noodles_core::Position;
+use noodles_csi::BinningIndex;
+use noodles_csi::binning_index::index::reference_sequence::bin::Chunk as IndexChunk;
 use numpy::{Element, IntoPyArray, PyArrayMethods};
 use pyo3::exceptions::{PyOSError, PyOverflowError, PyRuntimeError, PyUserWarning, PyValueError};
 use pyo3::prelude::*;
@@ -843,6 +849,8 @@ struct Line {
     start: usize,
     end: usize,
     terminated: bool,
+    // false for a line outside the region, kept for its warnings only
+    kept: bool,
 }
 
 /// Lines read from the file, parsed together on one thread.
@@ -856,12 +864,20 @@ struct Batch {
 impl Batch {
     fn parse(&self, spec: &Spec) -> Chunk {
         let mut chunk = Chunk::new(spec);
-        for (i, line) in self.lines.iter().enumerate() {
+        let mut previous_variant = self.previous_variant;
+        for line in &self.lines {
             let line_end = if line.terminated { State::Eol } else { State::Eof };
-            let previous_variant = self.previous_variant + i as i64;
             let text = &self.data[line.start..line.end];
-            chunk.last_pos = parse_line(text, line_end, previous_variant, spec, &mut chunk);
-            chunk.length += 1;
+            if line.kept {
+                chunk.last_pos = parse_line(text, line_end, previous_variant, spec, &mut chunk);
+                chunk.length += 1;
+                previous_variant += 1;
+            } else {
+                let mut columns = text.split(|&c| c == b'\t');
+                let fixed: [Option<&[u8]>; 9] = std::array::from_fn(|_| columns.next());
+                chunk.last_pos = parse_chrom_pos(&fixed, line_end, previous_variant,
+                                                 &mut chunk.chrom, &mut chunk.warnings);
+            }
         }
         chunk
     }
@@ -878,20 +894,198 @@ struct VCFChunkIterator {
     pool: rayon::ThreadPool,
     batch_bytes: usize,
     batch_lines: usize,
+    // keeps only the variants of this region, if any
+    region: Option<Region>,
+    // whether the lines of the region are read from the file's index
+    indexed: bool,
     // index of the last variant read, -1 before the first
     variant_index: i64,
     eof: bool,
 }
 
-fn open(path: &str) -> PyResult<Box<dyn BufRead + Send>> {
-    let file = File::open(path).map_err(|e| PyOSError::new_err(format!("{path}: {e}")))?;
-    // same rule as the Python input stream
-    let reader: Box<dyn Read + Send> = if path.ends_with("gz") {
-        Box::new(MultiGzDecoder::new(BufReader::with_capacity(BUFFER_SIZE, file)))
-    } else {
-        Box::new(file)
+/// A region as the Cython parser filters variants: on CHROM, and POS from
+/// `begin` to `end` when they are positive.
+struct Region {
+    chrom: Vec<u8>,
+    begin: i64,
+    end: i64,
+}
+
+impl Region {
+    /// Whether the variant of `line` is in the region, with CHROM and POS
+    /// read as the Cython parser does.
+    fn contains(&self, line: &[u8]) -> bool {
+        let mut columns = line.split(|&c| c == b'\t');
+        if columns.next() != Some(self.chrom.as_slice()) {
+            return false;
+        }
+        let pos = match columns.next().map(strtol) {
+            Some(Int::Parsed(v) | Int::Partial(v)) => v,
+            _ => 0,
+        };
+        !(self.begin > 0 && pos < self.begin) && !(self.end > 0 && pos > self.end)
+    }
+
+    /// Whether no variant can be in the region.
+    fn is_empty(&self) -> bool {
+        self.end > 0 && self.end < self.begin
+    }
+}
+
+fn os_error(path: &Path, e: std::io::Error) -> PyErr {
+    PyOSError::new_err(format!("{}: {e}", path.display()))
+}
+
+/// Whether `file` starts with a BGZF block: a gzip member with a 'BC' extra
+/// subfield. Leaves `file` at its start.
+fn is_bgzf(file: &mut File) -> std::io::Result<bool> {
+    let mut header = [0u8; 14];
+    let mut n = 0;
+    while n < header.len() {
+        match file.read(&mut header[n..])? {
+            0 => break,
+            k => n += k,
+        }
+    }
+    file.seek(SeekFrom::Start(0))?;
+    Ok(n == header.len() && header[..3] == [0x1f, 0x8b, 0x08] && header[3] & 0x04 != 0
+       && header[12..14] == *b"BC")
+}
+
+/// The index of the BGZF file at `path`, `.tbi` or else `.csi`, if any.
+fn read_index(path: &Path) -> PyResult<Option<Box<dyn BinningIndex + Send>>> {
+    let with_suffix = |suffix: &str| {
+        let mut p = path.as_os_str().to_owned();
+        p.push(suffix);
+        std::path::PathBuf::from(p)
     };
-    Ok(Box::new(BufReader::with_capacity(BUFFER_SIZE, reader)))
+    let tbi = with_suffix(".tbi");
+    if tbi.exists() {
+        let index = noodles_tabix::fs::read(&tbi).map_err(|e| os_error(&tbi, e))?;
+        return Ok(Some(Box::new(index)));
+    }
+    let csi = with_suffix(".csi");
+    if csi.exists() {
+        let index = noodles_csi::fs::read(&csi).map_err(|e| os_error(&csi, e))?;
+        return Ok(Some(Box::new(index)));
+    }
+    Ok(None)
+}
+
+/// The chunks of the BGZF file holding the records that overlap `region`,
+/// as tabix reads them.
+fn query(index: &dyn BinningIndex, region: &Region) -> std::io::Result<Vec<IndexChunk>> {
+    let names = index.header().map(|h| h.reference_sequence_names());
+    let Some(id) = names.and_then(|names| names.iter().position(|n| n.as_slice() == region.chrom)) else {
+        return Ok(Vec::new());
+    };
+    // the largest position the index can hold
+    let max = (1i64 << (u32::from(index.min_shift()) + 3 * u32::from(index.depth()))) - 1;
+    let begin = region.begin.max(1);
+    if region.is_empty() || begin > max {
+        return Ok(Vec::new());
+    }
+    let position = |p: i64| Position::try_from(p as usize).map_err(std::io::Error::other);
+    let interval = if region.end > 0 {
+        (position(begin)?..=position(region.end.min(max))?).into()
+    } else {
+        (position(begin)?..).into()
+    };
+    index.query(id, interval)
+}
+
+/// Data lines of the records in the chunks of an indexed BGZF file, read
+/// with several threads.
+struct RegionReader {
+    reader: bgzf::io::MultithreadedReader<File>,
+    chunks: std::vec::IntoIter<IndexChunk>,
+    // end of the chunk being read
+    end: Option<bgzf::VirtualPosition>,
+    line: Vec<u8>,
+    consumed: usize,
+}
+
+impl Read for RegionReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.fill_buf()?.read(buf)?;
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl BufRead for RegionReader {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        use bgzf::io::Seek as _;
+        while self.consumed == self.line.len() {
+            self.line.clear();
+            self.consumed = 0;
+            if let Some(end) = self.end {
+                let at_end = self.reader.fill_buf()?.is_empty() || self.reader.virtual_position() >= end;
+                if !at_end && self.reader.read_until(b'\n', &mut self.line)? > 0 {
+                    continue;
+                }
+                self.end = None;
+            }
+            match self.chunks.next() {
+                None => return Ok(&[]),
+                Some(chunk) => {
+                    self.reader.seek_to_virtual_position(chunk.start())?;
+                    self.end = Some(chunk.end());
+                }
+            }
+        }
+        Ok(&self.line[self.consumed..])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.consumed += amt;
+    }
+}
+
+/// Give `message` as a Python `UserWarning`.
+fn warn(py: Python<'_>, message: &str) -> PyResult<()> {
+    // through Python, as messages may contain null bytes (see Context)
+    let category = py.get_type::<PyUserWarning>();
+    py.import("warnings")?.getattr("warn")?.call1((message, &category))?;
+    Ok(())
+}
+
+/// Open the VCF file at `path`: decompressed with `n_threads` if BGZF, with
+/// one thread if another gzip, as read if not compressed (the same rule as
+/// for the Python input stream, on the name). With a `region` and
+/// `use_index`, an indexed BGZF file gives the lines of the region only,
+/// without the header; an index that cannot be read gives a warning, as
+/// tabix failing does with the Cython parser. Returns the reader and whether
+/// it reads the region from the index.
+fn open(py: Python<'_>, path: &str, n_threads: usize, region: Option<&Region>, use_index: bool)
+        -> PyResult<(Box<dyn BufRead + Send>, bool)> {
+    let p = Path::new(path);
+    let mut file = File::open(p).map_err(|e| os_error(p, e))?;
+    if !path.ends_with("gz") {
+        return Ok((Box::new(BufReader::with_capacity(BUFFER_SIZE, file)), false));
+    }
+    if !is_bgzf(&mut file).map_err(|e| os_error(p, e))? {
+        let reader = MultiGzDecoder::new(BufReader::with_capacity(BUFFER_SIZE, file));
+        return Ok((Box::new(BufReader::with_capacity(BUFFER_SIZE, reader)), false));
+    }
+    let workers = NonZero::new(n_threads).unwrap_or(NonZero::<usize>::MIN);
+    let reader = bgzf::io::MultithreadedReader::with_worker_count(workers, file);
+    if let (Some(region), true) = (region, use_index) {
+        let chunks = read_index(p).and_then(|index| match index {
+            Some(index) => query(index.as_ref(), region).map(Some).map_err(|e| os_error(p, e)),
+            None => Ok(None),
+        });
+        match chunks {
+            Ok(None) => {}
+            Ok(Some(chunks)) => {
+                let reader = RegionReader { reader, chunks: chunks.into_iter(), end: None,
+                                            line: Vec::new(), consumed: 0 };
+                return Ok((Box::new(reader), true));
+            }
+            Err(e) => warn(py, &format!("error reading the index ({e}); falling back to scanning to region"))?,
+        }
+    }
+    Ok((Box::new(reader), false))
 }
 
 /// Read one line into `line` without its terminator. Returns `None` at end of
@@ -959,6 +1153,7 @@ impl VCFChunkIterator {
         let reader = self.reader.get_mut().unwrap_or_else(|e| e.into_inner());
         let (spec, chunk_length) = (&self.spec, self.chunk_length);
         let (batch_bytes, batch_lines) = (self.batch_bytes, self.batch_lines);
+        let region = self.region.as_ref();
         let mut previous_variant = self.variant_index;
         let mut eof = false;
         // whether the file ends at the start of a line
@@ -979,8 +1174,18 @@ impl VCFChunkIterator {
                             break;
                         }
                         Some(terminated) => {
-                            batch.lines.push(Line { start, end: batch.data.len(), terminated });
-                            n_lines += 1;
+                            let line = &batch.data[start..];
+                            let kept = region.is_none_or(|r| r.contains(line));
+                            if kept {
+                                n_lines += 1;
+                            } else {
+                                // CHROM and POS only, then a tab if more follows,
+                                // for the same warnings
+                                if let Some(i) = memchr::memchr_iter(b'\t', line).nth(1) {
+                                    batch.data.truncate(start + i + 1);
+                                }
+                            }
+                            batch.lines.push(Line { start, end: batch.data.len(), terminated, kept });
                             if !terminated {
                                 eof = true;
                                 break;
@@ -991,7 +1196,7 @@ impl VCFChunkIterator {
                 if batch.lines.is_empty() {
                     break;
                 }
-                previous_variant += batch.lines.len() as i64;
+                previous_variant += batch.lines.iter().filter(|l| l.kept).count() as i64;
                 let (sender, index) = (sender.clone(), n_batches);
                 n_batches += 1;
                 scope.spawn(move |_| {
@@ -1023,13 +1228,8 @@ impl VCFChunkIterator {
         let chunk = py
             .detach(|| self.parse_chunk())
             .map_err(|e| PyOSError::new_err(e.to_string()))?;
-        if !chunk.warnings.is_empty() {
-            // through Python, as messages may contain null bytes (see Context)
-            let warn = py.import("warnings")?.getattr("warn")?;
-            let category = py.get_type::<PyUserWarning>();
-            for w in &chunk.warnings {
-                warn.call1((w.as_str(), &category))?;
-            }
+        for w in &chunk.warnings {
+            warn(py, w)?;
         }
         if chunk.length == 0 {
             return Ok(None);
@@ -1086,23 +1286,14 @@ impl VCFChunkIterator {
     }
 }
 
-/// Parse one data line into the next variant of `chunk`, and return its POS
-/// (0 when missing or unparsable). Every field gets a value for the variant,
-/// the fill value when the line is too short for it.
-fn parse_line(line: &[u8], line_end: State, previous_variant: i64, spec: &Spec,
-              chunk: &mut Chunk) -> i64 {
-    let mut columns = line.split(|&c| c == b'\t');
-    // CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO and FORMAT
-    let fixed: [Option<&[u8]>; 9] = std::array::from_fn(|_| columns.next());
+/// Read CHROM and POS from the first `columns` of a line, giving the same
+/// warnings as the Cython parser: copy CHROM, null-terminated, into `chrom`
+/// and return POS, 0 when missing or unparsable.
+fn parse_chrom_pos(columns: &[Option<&[u8]>; 9], line_end: State, previous_variant: i64,
+                   chrom: &mut Vec<u8>, warnings: &mut Vec<String>) -> i64 {
     // state of a warning about column `i`, which ends the line if no tab follows
-    let state = |i: usize, own: State| if fixed[i + 1].is_some() { own } else { line_end };
-    let warnings = &mut chunk.warnings;
-    // index of the variant in the chunk
-    let row = chunk.length;
-
-    // CHROM
-    let chrom_field = fixed[0].unwrap_or(b"");
-    let chrom = &mut chunk.chrom;
+    let state = |i: usize, own: State| if columns[i + 1].is_some() { own } else { line_end };
+    let chrom_field = columns[0].unwrap_or(b"");
     chrom.clear();
     chrom.extend_from_slice(chrom_field);
     let mut ctx = Context { variant_index: previous_variant, chrom: b"", pos: 0 };
@@ -1112,9 +1303,8 @@ fn parse_line(line: &[u8], line_end: State, previous_variant: i64, spec: &Spec,
     chrom.push(0);
     ctx.chrom = chrom;
 
-    // POS
     let mut pos: i64 = 0;
-    if let Some(pos_field) = fixed[1] {
+    if let Some(pos_field) = columns[1] {
         let pos_state = state(1, State::Pos);
         if pos_field.is_empty() {
             warnings.push(ctx.message("empty POS", pos_state));
@@ -1131,8 +1321,26 @@ fn parse_line(line: &[u8], line_end: State, previous_variant: i64, spec: &Spec,
             }
         }
     }
-    ctx.pos = pos;
-    ctx.variant_index = previous_variant + 1;
+    pos
+}
+
+/// Parse one data line into the next variant of `chunk`, and return its POS
+/// (0 when missing or unparsable). Every field gets a value for the variant,
+/// the fill value when the line is too short for it.
+fn parse_line(line: &[u8], line_end: State, previous_variant: i64, spec: &Spec,
+              chunk: &mut Chunk) -> i64 {
+    let mut columns = line.split(|&c| c == b'\t');
+    // CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO and FORMAT
+    let fixed: [Option<&[u8]>; 9] = std::array::from_fn(|_| columns.next());
+    // state of a warning about column `i`, which ends the line if no tab follows
+    let state = |i: usize, own: State| if fixed[i + 1].is_some() { own } else { line_end };
+    let warnings = &mut chunk.warnings;
+    // index of the variant in the chunk
+    let row = chunk.length;
+
+    let chrom_field = fixed[0].unwrap_or(b"");
+    let pos = parse_chrom_pos(&fixed, line_end, previous_variant, &mut chunk.chrom, warnings);
+    let ctx = Context { variant_index: previous_variant + 1, chrom: &chunk.chrom, pos };
 
     let f = &spec.fixed;
     if let Some(c) = &mut chunk.chrom_values {
@@ -1367,14 +1575,19 @@ impl VCFChunkIterator {
     /// for the dtype codes. Lines are parsed on `n_threads` threads, in
     /// batches of `batch_bytes`, or fewer lines so that each chunk gives each
     /// thread several batches.
+    ///
+    /// With a `region`, `(chrom, begin, end)`, only its variants are read: from
+    /// the file's index if `use_index` and the file is indexed BGZF, else by
+    /// scanning the file, with a warning if the index cannot be read.
     #[new]
     #[pyo3(signature = (path, chunk_length, samples, loc_samples, fields, string_types,
-                        alt_number, n_threads, batch_bytes, infos=Vec::new(),
-                        formats=Vec::new()))]
+                        alt_number, n_threads, batch_bytes, region=None, use_index=true,
+                        infos=Vec::new(), formats=Vec::new()))]
     #[allow(clippy::too_many_arguments)]
-    fn new(path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
+    fn new(py: Python<'_>, path: &str, chunk_length: usize, samples: Vec<String>, loc_samples: Vec<bool>,
            fields: Vec<String>, string_types: HashMap<String, String>, alt_number: usize,
-           n_threads: usize, batch_bytes: usize,
+           n_threads: usize, batch_bytes: usize, region: Option<(String, i64, i64)>,
+           use_index: bool,
            infos: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>,
            formats: Vec<(String, String, usize, Option<Bound<'_, PyAny>>)>) -> PyResult<Self> {
         if chunk_length == 0 {
@@ -1430,15 +1643,18 @@ impl VCFChunkIterator {
         fixed.filters.sort();
         fixed.filters.dedup();
 
+        let region = region.map(|(chrom, begin, end)| Region { chrom: chrom.into_bytes(), begin, end });
+        let (mut reader, indexed) = open(py, path, n_threads, region.as_ref(), use_index)?;
         // skip the header, already read by Python
-        let mut reader = open(path)?;
         let mut line = Vec::new();
-        loop {
-            match read_line(reader.as_mut(), &mut line)? {
-                None => return Err(PyValueError::new_err(format!(
-                    "{path}: VCF file is missing mandatory header line (\"#CHROM...\")"))),
-                Some(_) if line.starts_with(b"#CHROM") => break,
-                Some(_) => {}
+        if !indexed {
+            loop {
+                match read_line(reader.as_mut(), &mut line)? {
+                    None => return Err(PyValueError::new_err(format!(
+                        "{path}: VCF file is missing mandatory header line (\"#CHROM...\")"))),
+                    Some(_) if line.starts_with(b"#CHROM") => break,
+                    Some(_) => {}
+                }
             }
         }
 
@@ -1450,9 +1666,17 @@ impl VCFChunkIterator {
             pool,
             batch_bytes,
             batch_lines: chunk_length.div_ceil(4 * n_threads),
+            region,
+            indexed,
             variant_index: -1,
             eof: false,
         })
+    }
+
+    /// Whether the lines of the region are read from the file's index.
+    #[getter]
+    fn indexed(&self) -> bool {
+        self.indexed
     }
 
     /// The number of threads parsing lines.
