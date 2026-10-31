@@ -1843,7 +1843,8 @@ def _rust_genotype_dtype(t):
     return t if t in _RUST_GENOTYPE_DTYPES else None
 
 
-# fields read by the Rust parser, but strings, FILTER flags and calldata/GT
+# fields read by the Rust parser whatever their type: numbers, computed fields
+# (FILTER flags, strings and calldata/GT are checked separately)
 _RUST_FIELDS = ('variants/POS', 'variants/QUAL', 'variants/numalt', 'variants/altlen',
                 'variants/is_snp')
 _RUST_STRING_FIELDS = ('variants/CHROM', 'variants/ID', 'variants/REF', 'variants/ALT')
@@ -1883,14 +1884,11 @@ def _cython_fields_reason(fields, types):
 def _rust_chunks(path, headers, fields, types, numbers, fills, chunk_length,
                  loc_samples):
     # as the Cython parser does
-    if 'variants/POS' in types and types['variants/POS'] != np.dtype('int32'):
-        warnings.warn('only int32 supported for POS field, ignoring requested type: %r'
-                      % types['variants/POS'])
-    if 'variants/QUAL' in fields and 'variants/QUAL' in types:
-        t = types['variants/QUAL']
-        if t != np.dtype('float32'):
-            warnings.warn('only float32 supported for QUAL field, ignoring requested type: %r'
-                          % t)
+    for f, t in ('POS', 'int32'), ('QUAL', 'float32'):
+        requested = types.get('variants/' + f)
+        if 'variants/' + f in fields and requested is not None and requested != np.dtype(t):
+            warnings.warn('only %s supported for %s field, ignoring requested type: %r'
+                          % (t, f, requested))
     string_types = {f: _rust_string_dtype(types[f]).str
                     for f in fields if f in _RUST_STRING_FIELDS}
     gt = None

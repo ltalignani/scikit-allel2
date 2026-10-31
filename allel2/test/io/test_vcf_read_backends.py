@@ -64,6 +64,21 @@ EDGE_CASES = {
     b'2L\t12\t.\tA\tC\t.\t.\t.\tGT\t0/1\t1/1\t1/1\n'
     b'\n'
     b'2L\t14\t.\tA\tC\t.\t.\t.\tGT\t0/1\t1/1\t1/1\n',
+    # line terminators and null bytes, as the Cython parser reads them
+    'lone_cr': HEADER +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\r'
+    b'2L\t15\t.\tA\tC\t2\tPASS\t.\tGT\t0/0\t0|1\t1/.\r\r\n'
+    b'2L\t16\t.\tA\tC\t3\tPASS\t.\tGT\t0/0\t0|1\t1/.\n',
+    'final_cr': HEADER.replace(b'\n', b'\r\n') +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\r\n'
+    b'2L\t15\t.\tA\tC\t2\tPASS\r',
+    'null_byte': HEADER +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\n'
+    b'2L\t1\x005\t.\tA\tC\t2\tPASS\t.\tGT\t0/0\t0|1\t1/.\n'
+    b'2L\t16\t.\tA\tC\t3\tPASS\t.\tGT\t0/0\t0|1\t1/.\n',
+    'null_line': HEADER +
+    b'2L\t12\t.\tA\tC\t1\tPASS\t.\tGT\t0/1\t1|1\t./.\n'
+    b'\x002L\t16\t.\tA\tC\t3\tPASS\t.\tGT\t0/0\t0|1\t1/.\n',
     # lines that exercise the fixed columns
     'qual': HEADER +
     b'2L\t1\t.\tA\tC\t12.5\t.\t.\tGT\t0/1\t1/1\t1/1\n'
@@ -379,6 +394,7 @@ def test_exclude_and_rename_fields(monkeypatch, caplog):
 @pytest.mark.parametrize('fields, field', [
     (['POS', 'GT', 'GQ'], 'calldata/GQ'),
     (['POS', 'DP'], 'variants/DP'),
+    # all fields include INFO fields
     ('*', 'variants/'),
 ])
 def test_fallback_unsupported_field(fields, field, monkeypatch, caplog):
@@ -391,17 +407,20 @@ def test_fallback_unsupported_field(fields, field, monkeypatch, caplog):
 @pytest.mark.parametrize('types, field', [
     ({'GT': 'f4'}, 'calldata/GT'),
     ({'GT': 'genotype_ac/i1'}, 'calldata/GT'),
-    ({'CHROM': 'U10'}, 'variants/CHROM'),
     ({'REF': 'S'}, 'variants/REF'),
 ])
 def test_fallback_unsupported_type(types, field, monkeypatch, caplog):
-    try:
-        _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
-              fields=['POS', 'GT', 'CHROM', 'REF'], types=types)
-    except ValueError:
-        # the Cython parser rejects some of these types
-        pass
+    _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
+          fields=['POS', 'GT', 'CHROM', 'REF'], types=types)
     assert field in _reason(caplog)
+
+
+def test_fallback_rejected_type(monkeypatch, caplog):
+    # the Cython parser rejects strings that are neither bytes nor objects
+    with pytest.raises(ValueError, match='expected string'):
+        _read(os.path.join(DATA, 'sample.vcf'), monkeypatch, caplog,
+              fields=['POS', 'CHROM'], types={'CHROM': 'U10'})
+    assert 'variants/CHROM' in _reason(caplog)
 
 
 def test_pos_type_warning(monkeypatch, caplog):

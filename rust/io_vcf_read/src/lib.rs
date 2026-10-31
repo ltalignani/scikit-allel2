@@ -426,19 +426,35 @@ fn open(path: &str) -> PyResult<Box<dyn BufRead + Send>> {
 
 /// Read one line into `line` without its terminator. Returns `None` at end of
 /// file, otherwise whether the line had a terminator.
+///
+/// As in the Cython parser, a line ends at LF, CR LF or a lone CR, and a null
+/// byte is the end of the file.
 fn read_line(reader: &mut dyn BufRead, line: &mut Vec<u8>) -> std::io::Result<Option<bool>> {
     line.clear();
-    if reader.read_until(b'\n', line)? == 0 {
-        return Ok(None);
-    }
-    let terminated = line.last() == Some(&b'\n');
-    if terminated {
-        line.pop();
-        if line.last() == Some(&b'\r') {
-            line.pop();
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(if line.is_empty() { None } else { Some(false) });
         }
+        let Some(i) = memchr::memchr3(b'\n', b'\r', 0, buf) else {
+            line.extend_from_slice(buf);
+            let n = buf.len();
+            reader.consume(n);
+            continue;
+        };
+        let c = buf[i];
+        line.extend_from_slice(&buf[..i]);
+        if c == 0 {
+            // left unread, so that reading stops here
+            reader.consume(i);
+            return Ok(if line.is_empty() { None } else { Some(false) });
+        }
+        reader.consume(i + 1);
+        if c == b'\r' && reader.fill_buf()?.first() == Some(&b'\n') {
+            reader.consume(1);
+        }
+        return Ok(Some(true));
     }
-    Ok(Some(terminated))
 }
 
 /// Context needed to format a warning like the Cython parser does.
@@ -589,9 +605,9 @@ fn parse_line<T: Allele>(
     // POS
     let mut pos: i64 = 0;
     if let Some(pos_field) = fixed[1] {
-        let state = state(1, State::Pos);
+        let pos_state = state(1, State::Pos);
         if pos_field.is_empty() {
-            warnings.push(ctx.message("empty POS", state));
+            warnings.push(ctx.message("empty POS", pos_state));
         } else {
             match strtol(pos_field) {
                 Int::Missing => {}
@@ -599,9 +615,9 @@ fn parse_line<T: Allele>(
                 Int::Partial(v) => {
                     pos = v;
                     ctx.pos = v;
-                    warnings.push(ctx.message("not all characters parsed for integer value", state));
+                    warnings.push(ctx.message("not all characters parsed for integer value", pos_state));
                 }
-                Int::Error => warnings.push(ctx.message("error parsing integer value", state)),
+                Int::Error => warnings.push(ctx.message("error parsing integer value", pos_state)),
             }
         }
     }
