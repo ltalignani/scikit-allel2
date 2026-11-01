@@ -1963,6 +1963,14 @@ def test_no_samples():
     assert 'calldata/GQ' not in callset
 
 
+def test_altlen_shape():
+    # one ALT value per variant gives a 1-D altlen, with or without ALT
+    vcf_path = fixture_path('altlen.vcf')
+    for fields in ['altlen'], ['altlen', 'ALT']:
+        callset = read_vcf(vcf_path, fields=fields, alt_number=1)
+        assert 1 == callset['variants/altlen'].ndim
+
+
 def test_computed_fields():
 
     input_data = (b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n"

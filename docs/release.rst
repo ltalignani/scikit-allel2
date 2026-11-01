@@ -113,6 +113,13 @@ Fixes
 * :func:`allel2.read_vcf` with ``region=``: messages written by tabix no longer
   corrupt the VCF stream. :issue:`ltalignani/scikit-allel2#41`.
 
+* :func:`allel2.read_vcf`: ``variants/altlen`` read without ``variants/ALT``
+  and with one ALT value per variant is 1-D on every platform; on Linux it was
+  2-D, with shape ``(n_variants, 1)``. :issue:`ltalignani/scikit-allel2#61`.
+
+* :func:`allel2.read_vcf` with ``region=``: when the ``tabix`` program is not
+  found, no temporary file is left open. :issue:`ltalignani/scikit-allel2#66`.
+
 * Compatibility with zarr 3: Dask arrays and chunked arrays work on zarr 3
   stores. :issue:`ltalignani/scikit-allel2#30`,
   :issue:`ltalignani/scikit-allel2#31`.
