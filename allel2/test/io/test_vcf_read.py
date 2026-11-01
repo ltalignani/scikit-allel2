@@ -1360,6 +1360,18 @@ def test_read_region_tabix_error(monkeypatch):
         compare_arrays(expected[key], actual[key])
 
 
+def test_read_region_tabix_not_found():
+    # without tabix, the file is scanned, and what was opened for tabix closed
+    vcf_path = fixture_path('sample.vcf.gz')
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        callset = read_vcf(vcf_path, region='20', fields=['POS'], tabix='/no/such/tabix')
+        gc.collect()
+    assert 6 == len(callset['variants/POS'])
+    messages = [str(w.message) for w in caught]
+    assert ['tabix not found, falling back to scanning to region'] == messages
+
+
 @requires_tabix
 def test_read_region_tabix_process_closed():
     # each tabix process is waited for once its output has been read
