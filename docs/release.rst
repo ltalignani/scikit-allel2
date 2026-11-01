@@ -1,6 +1,68 @@
 Release notes
 =============
 
+.. _release_2.1.0:
+
+v2.1.0
+------
+
+VCF files are read by a new parser, written in Rust, behind the same functions:
+:func:`allel2.read_vcf`, :func:`allel2.vcf_to_zarr`, :func:`allel2.vcf_to_hdf5`,
+:func:`allel2.vcf_to_npz`, :func:`allel2.vcf_to_dataframe`,
+:func:`allel2.vcf_to_csv`, :func:`allel2.vcf_to_recarray` and
+:func:`allel2.iter_vcf_chunks`. Only the time to read changes, not the results.
+See :ref:`vcf_parsers`. :issue:`ltalignani/scikit-allel2#51`.
+
+Enhancements
+~~~~~~~~~~~~
+
+* Reading VCF files is faster, on one thread and more so on several. With their
+  default fields, on 10 cores, against the Cython parser of 2.0, with identical
+  outputs (``bench/vcf_rust.py``):
+
+  ====================================  ===============  =======  ================  ================
+  Data                                  Function         Cython   Rust, 1 thread    Rust, 10 threads
+  ====================================  ===============  =======  ================  ================
+  1000 Genomes chr22                    ``read_vcf``     194 s    57 s (×3.4)       11 s (×17.5)
+  1000 Genomes chr22                    ``vcf_to_zarr``  187 s    57 s (×3.3)       11 s (×16.7)
+  Ag1000G 3R:10,000,000-15,000,000      ``read_vcf``     196 s    89 s (×2.2)       15 s (×12.7)
+  Ag1000G 3R:10,000,000-15,000,000      ``vcf_to_zarr``  188 s    86 s (×2.2)       16 s (×12.0)
+  ====================================  ===============  =======  ================  ================
+
+  :issue:`ltalignani/scikit-allel2#52`, :issue:`ltalignani/scikit-allel2#53`,
+  :issue:`ltalignani/scikit-allel2#54`, :issue:`ltalignani/scikit-allel2#55`,
+  :issue:`ltalignani/scikit-allel2#58`.
+
+* New parameter `n_threads` on the VCF readers: by default, all the CPU cores the
+  process may run on, at most ``OMP_NUM_THREADS`` if set; ``n_threads=1`` reads on
+  one thread. :issue:`ltalignani/scikit-allel2#57`.
+
+* bgzip-compressed VCF files are decompressed on several threads, and `region`
+  reads their ``.tbi`` or ``.csi`` index without the ``tabix`` program, which is
+  no longer needed. The `tabix` parameter is kept, for the Cython parser only;
+  ``tabix=None`` still scans the file. :issue:`ltalignani/scikit-allel2#56`.
+
+* The ``ALLEL2_BACKEND`` environment variable chooses the parser: ``rust``, the
+  default, or ``cython``, the former parser. Reads that the Rust parser does not
+  handle (`transformers`, file-like objects, some types) still use the Cython
+  parser; the parser used and the reason are logged at the debug level by the
+  ``allel2.io.vcf_read`` logger. :issue:`ltalignani/scikit-allel2#52`.
+
+Build
+~~~~~
+
+* Building from the source distribution requires a Rust toolchain, besides a C
+  compiler; the wheels need nothing more. :issue:`ltalignani/scikit-allel2#52`.
+
+Fixes
+~~~~~
+
+* A VCF line with more sample columns than the header, whose first FORMAT key is
+  not read, no longer crashes the reader. :issue:`ltalignani/scikit-allel2#55`.
+
+* With ``ALLEL2_BACKEND=cython``, a `region` read without the ``tabix`` program no
+  longer leaves a temporary file open. :issue:`ltalignani/scikit-allel2#56`.
+
 .. _release_2.0.0:
 
 v2.0.0

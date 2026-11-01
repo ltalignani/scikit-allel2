@@ -1329,9 +1329,10 @@ requires_tabix = pytest.mark.skipif(shutil.which('tabix') is None,
 
 
 @requires_tabix
-def test_read_region_tabix_warning():
+def test_read_region_tabix_warning(monkeypatch):
     # an index older than its data file makes tabix print a warning on stderr,
-    # which must not end up in the VCF stream
+    # which must not end up in the VCF stream; the Cython parser runs tabix
+    monkeypatch.setenv('ALLEL2_BACKEND', 'cython')
     src = fixture_path('sample.vcf.gz')
     vcf_path = os.path.join(tempdir, 'old_index.vcf.gz')
     shutil.copy(src, vcf_path)
@@ -1347,7 +1348,9 @@ def test_read_region_tabix_warning():
 
 @requires_tabix
 def test_read_region_tabix_error(monkeypatch):
-    # tabix fails (no index): fall back to scanning the file, with a warning
+    # tabix fails (no index): fall back to scanning the file, with a warning;
+    # the Cython parser runs tabix
+    monkeypatch.setenv('ALLEL2_BACKEND', 'cython')
     src = fixture_path('sample.vcf.gz')
     vcf_path = os.path.join(tempdir, 'no_index.vcf.gz')
     shutil.copy(src, vcf_path)
@@ -1360,8 +1363,10 @@ def test_read_region_tabix_error(monkeypatch):
         compare_arrays(expected[key], actual[key])
 
 
-def test_read_region_tabix_not_found():
-    # without tabix, the file is scanned, and what was opened for tabix closed
+def test_read_region_tabix_not_found(monkeypatch):
+    # without tabix, the Cython parser scans the file, and closes what it
+    # opened for tabix
+    monkeypatch.setenv('ALLEL2_BACKEND', 'cython')
     vcf_path = fixture_path('sample.vcf.gz')
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
