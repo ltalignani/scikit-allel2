@@ -15,10 +15,14 @@ wheel, then waits for approval before publishing:
    classifier in `pyproject.toml` is `Development Status :: 5 - Production/Stable`
    (`4 - Beta` for pre-releases).
 
-2. **Tag.**
+2. **Tag.** Once the pull request of step 1 is merged, tag the merge commit:
 
    ```bash
    git switch master && git pull
+   git log --oneline -1    # the merge of the pull request of step 1
+   # must fail with "no tag exactly matches": a commit that already carries a
+   # tag is the previous release, and the files would get its version
+   git describe --exact-match --tags HEAD
    git tag -a v2.0.0rc1 -m v2.0.0rc1
    git push origin v2.0.0rc1
    ```
@@ -53,6 +57,13 @@ wheel, then waits for approval before publishing:
 
 A version cannot be uploaded twice to the same index: if a publication fails
 after the upload, fix the problem and tag the next version (`rc2`).
+
+If a tag was pushed on the wrong commit, the *Deploy* run stops at *Check
+versions* (the files carry the version of the commit, not of the tag) and
+publishes nothing: delete the tag (`git tag -d v2.0.0rc1` and
+`git push origin :refs/tags/v2.0.0rc1`), then tag the right commit. If
+ReadTheDocs does not list the recreated tag under *Versions*, build `latest`:
+each build syncs the tags.
 
 Use `a`, `b` or `rc` tags for pre-releases, not `.devN`: setuptools-scm cannot
 compute the version of the commits after a `.devN` tag (N > 0), which breaks
