@@ -1,0 +1,61 @@
+cff-version: 1.2.0
+message: >-
+  If you use scikit-allel2, please cite it with the DOI of the version you used,
+  as below. scikit-allel2 continues scikit-allel; please also cite scikit-allel.
+title: scikit-allel2
+abstract: >-
+  A Python package for exploring and analysing genetic variation data, with a
+  parallel VCF reader written in Rust. scikit-allel2 continues scikit-allel for
+  Python 3.12+, NumPy 2, zarr 3 and pandas 3.
+type: software
+authors:
+  - given-names: Alistair
+    family-names: Miles
+  - given-names: Murillo F.
+    family-names: Rodrigues
+  - given-names: Peter
+    family-names: Ralph
+  - given-names: Jerome
+    family-names: Kelleher
+  - given-names: Max
+    family-names: Schelker
+  - given-names: Rahul
+    family-names: Pisupati
+  - given-names: Summer
+    family-names: Rae
+  - given-names: Tim
+    family-names: Millar
+  - given-names: Loïc
+    family-names: Talignani
+license: MIT
+repository-code: https://github.com/ltalignani/scikit-allel2
+url: https://scikit-allel2.readthedocs.io
+keywords:
+  - genetics
+  - population genetics
+  - genomics
+  - VCF
+  - bioinformatics
+references:
+  - type: software
+    title: scikit-allel
+    authors:
+      - given-names: Alistair
+        family-names: Miles
+      - given-names: Murillo F.
+        family-names: Rodrigues
+      - given-names: Peter
+        family-names: Ralph
+      - given-names: Jerome
+        family-names: Kelleher
+      - given-names: Max
+        family-names: Schelker
+      - given-names: Rahul
+        family-names: Pisupati
+      - given-names: Summer
+        family-names: Rae
+      - given-names: Tim
+        family-names: Millar
+    doi: 10.5281/zenodo.597309
+    repository-code: https://github.com/cggh/scikit-allel
+    license: MIT

@@ -55,6 +55,13 @@ wheel, then waits for approval before publishing:
    release, reactivate `stable` (ReadTheDocs, *Versions*), then check that
    https://scikit-allel2.readthedocs.io/en/stable/ shows the new version.
 
+7. **GitHub release and DOI.** For a final release, create the GitHub release
+   from the tag (`gh release create v2.0.0 --verify-tag --notes-file …`), with
+   the notes of `docs/release.rst`. Zenodo archives every published release
+   and gives it a DOI, with the authors and the metadata of `.zenodo.json`:
+   check the new version on Zenodo. Update the authors in `.zenodo.json` and
+   `CITATION.cff` together.
+
 A version cannot be uploaded twice to the same index: if a publication fails
 after the upload, fix the problem and tag the next version (`rc2`).
 

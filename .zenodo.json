@@ -1,0 +1,32 @@
+{
+  "title": "scikit-allel2",
+  "upload_type": "software",
+  "description": "<p>A Python package for exploring and analysing genetic variation data, with a parallel VCF reader written in Rust. scikit-allel2 continues <a href=\"https://github.com/cggh/scikit-allel\">scikit-allel</a> for Python 3.12+, NumPy 2, zarr 3 and pandas 3.</p>",
+  "creators": [
+    {"name": "Miles, Alistair"},
+    {"name": "Rodrigues, Murillo F."},
+    {"name": "Ralph, Peter"},
+    {"name": "Kelleher, Jerome"},
+    {"name": "Schelker, Max"},
+    {"name": "Pisupati, Rahul"},
+    {"name": "Rae, Summer"},
+    {"name": "Millar, Tim"},
+    {"name": "Talignani, Loïc"}
+  ],
+  "license": "MIT",
+  "keywords": ["genetics", "population genetics", "genomics", "VCF", "bioinformatics"],
+  "related_identifiers": [
+    {
+      "identifier": "10.5281/zenodo.597309",
+      "relation": "isDerivedFrom",
+      "resource_type": "software",
+      "scheme": "doi"
+    },
+    {
+      "identifier": "https://scikit-allel2.readthedocs.io",
+      "relation": "isDocumentedBy",
+      "resource_type": "publication-softwaredocumentation",
+      "scheme": "url"
+    }
+  ]
+}
