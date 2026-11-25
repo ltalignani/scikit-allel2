@@ -8,6 +8,8 @@ abstract: >-
   parallel VCF reader written in Rust. scikit-allel2 continues scikit-allel for
   Python 3.12+, NumPy 2, zarr 3 and pandas 3.
 type: software
+# concept DOI: resolves to the latest version on Zenodo
+doi: 10.5281/zenodo.24537378
 authors:
   - given-names: Alistair
     family-names: Miles

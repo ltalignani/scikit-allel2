@@ -32,11 +32,18 @@ worked examples with real data, see the following articles:
 
     <a href="http://alimanfoo.github.io/2015/09/21/estimating-fst.html">Estimating F<sub>ST</sub></a>
 
-If you would like to cite `scikit-allel2`, please cite scikit-allel using the
-DOI below.
+To cite scikit-allel2, please use the DOI of the version you used (the
+badge below links to the latest version; GitHub's "Cite this repository"
+gives APA and BibTeX), and also cite scikit-allel, which scikit-allel2
+continues:
 
-.. image:: https://zenodo.org/badge/7890/cggh/scikit-allel.svg
-   :target: https://zenodo.org/badge/latestdoi/7890/cggh/scikit-allel
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.24537378.svg
+   :target: https://doi.org/10.5281/zenodo.24537378
+   :alt: scikit-allel2 DOI
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.597309.svg
+   :target: https://doi.org/10.5281/zenodo.597309
+   :alt: scikit-allel DOI
 
 Why "scikit-allel"?
 -------------------
