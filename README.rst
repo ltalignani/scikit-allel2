@@ -29,7 +29,15 @@ scikit-allel2 requires Python 3.12 or later, on Linux or macOS::
 
     pip install scikit-allel2
 
-To cite scikit-allel2, please cite scikit-allel:
+To cite scikit-allel2, please use the DOI of the version you used (the
+badge below links to the latest version; GitHub's "Cite this repository"
+gives APA and BibTeX), and also cite scikit-allel, which scikit-allel2
+continues:
 
-.. image:: https://zenodo.org/badge/7890/cggh/scikit-allel.svg
-   :target: https://zenodo.org/badge/latestdoi/7890/cggh/scikit-allel
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.24537378.svg
+   :target: https://doi.org/10.5281/zenodo.24537378
+   :alt: scikit-allel2 DOI
+
+.. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.597309.svg
+   :target: https://doi.org/10.5281/zenodo.597309
+   :alt: scikit-allel DOI
