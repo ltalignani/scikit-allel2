@@ -11,7 +11,7 @@
     {"name": "Pisupati, Rahul"},
     {"name": "Rae, Summer"},
     {"name": "Millar, Tim"},
-    {"name": "Talignani, Loïc"}
+    {"name": "Talignani, Loïc", "affiliation": "Université Montpellier"}
   ],
   "license": "MIT",
   "keywords": ["genetics", "population genetics", "genomics", "VCF", "bioinformatics"],

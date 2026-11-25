@@ -29,6 +29,7 @@ authors:
     family-names: Millar
   - given-names: Loïc
     family-names: Talignani
+    affiliation: Université Montpellier
 license: MIT
 repository-code: https://github.com/ltalignani/scikit-allel2
 url: https://scikit-allel2.readthedocs.io
